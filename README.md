@@ -62,6 +62,10 @@ MALLA 2: VY R2 R3
   `Req A-0`, `I R2`, `V R1`, `P R3`, separados por `;`.
 - `RESPUESTA`: resultados publicados; las pruebas verifican que el motor los reproduce.
 - `NOTA`: comentario para el profesor; no se muestra al alumno.
+- `IMAGEN`: dibujo del circuito (SVG o PNG en `problemas/`), que el alumno ve junto al enunciado.
+  Los del banco se generan con `python tools/dibujos.py` (requiere `pip install schemdraw`); el
+  script compara cada dibujo con la tabla del problema, incluida la polaridad de las fuentes, y no
+  lo genera si no coinciden.
 - Las **mallas se declaran** porque una lista de elementos no dice cómo está dibujado el
   circuito: el mismo circuito admite varios dibujos, con distintas ventanas. El tutor valida que
   cada malla sea un lazo cerrado, que sean independientes, que haya B − N + 1 y que todas puedan
@@ -136,7 +140,8 @@ tutor/problems.py    banco de problemas
 tutor/llm.py         cliente de modelos de lenguaje (opcional)
 tutor/store.py       SQLite y seudonimización (versión con servidor)
 web/                 página, hilo del motor, puente con el motor y configuración del sitio
-problemas/           banco de problemas
+problemas/           banco de problemas y sus dibujos
+tools/               armado del sitio y dibujos de los circuitos
 data/                banco de errores (editable en Excel)
 docs/                registro en Google Sheets
 ```

@@ -205,6 +205,23 @@ function renderProblemCard(p) {
     <details><summary>Elementos del circuito</summary><ul class="elements"></ul></details>`;
   card.querySelector("h2").textContent = p.title;
   card.querySelector(".statement").textContent = p.statement;
+  if (p.image) {
+    const fig = document.createElement("figure");
+    fig.className = "diagram";
+    // en otra pestaña: navegar en ésta reiniciaría el tutor y se perdería la conversación
+    const link = document.createElement("a");
+    link.href = "img/" + encodeURIComponent(p.image);
+    link.target = "_blank";
+    link.rel = "noopener";
+    const img = document.createElement("img");
+    img.src = link.href;
+    img.alt = "Diagrama del circuito: " + p.title;
+    link.appendChild(img);
+    const cap = document.createElement("figcaption");
+    cap.textContent = "Toca el dibujo para verlo en grande.";
+    fig.append(link, cap);
+    card.querySelector(".statement").before(fig);
+  }
   const ul = card.querySelector(".elements");
   for (const line of [...p.elements, ...p.meshes]) {
     const li = document.createElement("li");

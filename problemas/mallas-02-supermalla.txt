@@ -3,6 +3,7 @@ TEMA: mallas
 METODO: mallas
 NIVEL: intermedio
 FUENTE: Material de clase, Tema 4 (Método de mallas), Caso 3
+IMAGEN: mallas-02-supermalla.svg
 ENUNCIADO: IX = 2 A está en la rama que comparten las mallas I y II. R1 = 10 Ω y R2 = 20 Ω arriba; R3 = 30 Ω y R4 = 40 Ω en la rama que comparten con la malla III, donde está VX = 50 V. Encuentre V, I y P en cada resistencia.
 PIDE: VIP
 RESPUESTA: I1=-3 I2=-1 I3=-2.57

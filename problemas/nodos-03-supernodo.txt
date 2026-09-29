@@ -3,6 +3,7 @@ TEMA: nodos
 METODO: nodos
 NIVEL: avanzado
 FUENTE: Material de clase, Tema 5 (Método de nodos), Ejemplo 4
+IMAGEN: nodos-03-supernodo.svg
 ENUNCIADO: El nodo 4 es la referencia. Una fuente de 10 V fija el nodo 1. Una fuente de 31 V entre los nodos 2 y 3 (+ en el nodo 2) forma un supernodo. Resistencias: 3 Ω del nodo 1 a la referencia, 5 Ω entre 1 y 2, 6 Ω entre 1 y 3, 2 Ω del nodo 2 a la referencia, 10 Ω entre 3 y 5, 7 Ω del nodo 5 a la referencia; una fuente de 5 A va del nodo 3 al nodo 5. Plantee y resuelva las ecuaciones de nodos.
 RESPUESTA: V2=8.337 V3=-22.663 V5=11.256
 

@@ -3,6 +3,7 @@ TEMA: ohm
 METODO: ohm
 NIVEL: básico
 FUENTE: Material de clase, Temas 1 y 2 (Ley de Ohm y ley de Watt)
+IMAGEN: ohm-01-ley-de-ohm.svg
 ENUNCIADO: Una resistencia de 10 Ω se conecta a una fuente de 20 V. ¿Cuánta corriente circula y cuánta potencia disipa?
 PIDE: I R1; P R1
 RESPUESTA: I R1=2 P R1=40

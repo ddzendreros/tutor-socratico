@@ -3,7 +3,7 @@ reproducir los resultados publicados por el profesor."""
 import pytest
 
 from tutor import analysis as an
-from tutor.problems import load_bank
+from tutor.problems import DEFAULT_DIR, load_bank
 from tutor.solver import solve, target_value
 
 BANK = load_bank()
@@ -57,3 +57,8 @@ def test_supermesh_labels_follow_class_terms():
 def test_node_types_supernode_example():
     p = next(p for p in BANK if p.id.startswith("nodos-03"))
     assert an.node_types(p.circuit) == {"1": "fantasma", "2": "supernodo", "3": "supernodo", "5": "real"}
+
+
+@pytest.mark.parametrize("p", [p for p in BANK if p.image], ids=lambda p: p.id)
+def test_declared_drawing_exists(p):
+    assert (DEFAULT_DIR / p.image).is_file(), f"IMAGEN: {p.image} no está en problemas/"

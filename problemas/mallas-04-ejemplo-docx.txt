@@ -3,6 +3,7 @@ TEMA: mallas
 METODO: mallas
 NIVEL: básico
 FUENTE: Caso patrón del tutor socrático (especificación pedagógica)
+IMAGEN: mallas-04-ejemplo-docx.svg
 ENUNCIADO: Malla 1: fuente de 12 V, resistencia de 4 Ω y resistencia compartida de 2 Ω. Malla 2: fuente de 6 V, resistencia de 6 Ω y la resistencia compartida de 2 Ω. Las corrientes de malla I1 e I2 se consideran en sentido horario. Determina I1 e I2.
 RESPUESTA: I1=2.455 I2=1.364
 

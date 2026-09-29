@@ -3,6 +3,7 @@ TEMA: mallas
 METODO: mallas
 NIVEL: básico
 FUENTE: Material de clase, Tema 4 (Método de mallas), Caso 1
+IMAGEN: mallas-01-caso1-malla-real.svg
 ENUNCIADO: VX = 100 V alimenta la malla I; VY = 100 V está en la rama central, en serie con R2 = 20 Ω. R1 = 10 Ω arriba a la izquierda y R3 = 30 Ω a la derecha. Encuentre V, I y P en cada resistencia.
 PIDE: VIP
 RESPUESTA: I1=1.82 I2=2.73

@@ -35,7 +35,7 @@ def main() -> None:
         src = ROOT / "web" / name
         if src.exists():
             shutil.copy(src, SITE / name)
-    for img in (ROOT / "problemas").glob("*.png"):
+    for img in [*(ROOT / "problemas").glob("*.svg"), *(ROOT / "problemas").glob("*.png")]:
         (SITE / "img").mkdir(exist_ok=True)
         shutil.copy(img, SITE / "img" / img.name)
     print(f"site/ listo: {len(files)} archivos del motor y del banco.")
