@@ -232,6 +232,26 @@ def test_verify_mode_reviews_results_without_equations():
     assert s.step.kind == "verify"
 
 
+@pytest.mark.parametrize("msg, ok", [
+    ("Con el balance de potencias: PE = 20*2 = 40 W es igual a la consumida PC = 40 W", True),
+    ("PE = PC = 40 W", True),
+    ("PE = 40 W y PC = 40 W", True),
+    ("PE = 40 W y PC = 35 W", False),
+    ("PE = 40, PC = 35", False),
+])
+def test_power_balance_reads_the_powers_not_the_factors(msg, ok):
+    s = session("ohm-01", "verificar")
+    s.reply("I = V/R = 20/10 = 2 A, P = V*I = 40 W")
+    s.reply(msg)
+    assert s.indicators()["Verificó con balance de potencias"] == ("Sí" if ok else "No")
+
+
+def test_power_balance_asks_for_the_other_power():
+    s = session("ohm-01", "verificar")
+    s.reply("I = V/R = 20/10 = 2 A, P = V*I = 40 W")
+    assert "la otra potencia" in s.reply("PE = 20*2 = 40")
+
+
 def test_verify_mode_does_not_judge_results_as_equations():
     s = session("mallas-01", "verificar")
     msg = s.reply("30I1 - 20I2 = 0\n50I2 - 20I1 = 100\nI1 = 1.81818, I2 = 2.72727")

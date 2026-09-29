@@ -1245,17 +1245,23 @@ class Session:
         return sum(float(self.sol.power(e.name)) for e in self.circuit.by_kind("R"))
 
     def _check_balance(self, step, text):
-        nums = [n.value for n in parse_numbers(text) if n.unit in (None, "W")]
-        if not nums:
+        found = [n for n in parse_numbers(text) if n.unit in (None, "W")]
+        if not found:
             return None
+        # en "PE = 20·2 = 40 W" los factores no llevan unidad: si el alumno escribió watts, ésas son sus potencias
+        watts = [abs(n.value) for n in found if n.unit == "W"]
+        nums = watts or [abs(n.value) for n in found]
         pc = self._power_totals()
-        if len(nums) == 1:
-            if close(abs(nums[0]), pc, 0.02):
-                return Outcome(False, "ELABORATE", partial_msg=(
-                    "Ese valor está bien. ¿Y la otra potencia? Necesitas las dos para comparar PE con PC."))
-            return Outcome(False, "BALANCE_WRONG", {})
-        a, b = abs(nums[0]), abs(nums[1])
-        if close(a, pc, 0.02) and close(b, pc, 0.02):
+        hits = sum(close(x, pc, 0.02) for x in nums)
+        low = text.lower()
+        equal = re.search(r"\bp[ec]\s*=\s*p[ec]\b", low)            # "PE = PC = 40 W"
+        both_named = re.search(r"\bpe\b", low) and re.search(r"\bpc\b", low)
+        if hits and not (hits >= 2 or equal):
+            if len(watts) >= 2 or both_named:
+                return Outcome(False, "BALANCE_WRONG", {})
+            return Outcome(False, "ELABORATE", partial_msg=(
+                "Ese valor está bien. ¿Y la otra potencia? Necesitas las dos para comparar PE con PC."))
+        if hits:
             self.c["balance"] = True
             return Outcome(True, item="v", partial_msg=(
                 "PE = PC: la potencia que entregan las fuentes es la que consumen las resistencias. "
@@ -1279,7 +1285,8 @@ class Session:
                 return out
         if re.search(r"potencia|balance|\bpe\b|\bpc\b|energ[ií]a", low):
             step.data["balance"] = True
-            if len([n for n in parse_numbers(text) if n.unit in (None, "W")]) >= 2:
+            if len([n for n in parse_numbers(text) if n.unit in (None, "W")]) >= 2 or \
+                    re.search(r"\bp[ec]\s*=\s*p[ec]\b", low):
                 return self._check_balance(step, text)
             return Outcome(False, "ELABORATE", partial_msg=(
                 "Buena comprobación. Hazla: ¿cuánto vale la potencia que entregan las fuentes (PE) y "
