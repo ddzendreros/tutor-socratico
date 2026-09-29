@@ -1,5 +1,6 @@
 // Tutor socrático en el navegador: el motor (Python) corre con Pyodide en el
-// dispositivo del alumno, así que no hace falta ningún servidor.
+// dispositivo del alumno, así que no hace falta ningún servidor. Corre en un hilo
+// aparte (worker.js) para que la página siga respondiendo mientras arranca.
 "use strict";
 
 const CFG = Object.assign(
@@ -15,9 +16,14 @@ const MODE_HELP = {
 const QUEUE_KEY = "tutor-registros-pendientes";
 
 const $ = (sel) => document.querySelector(sel);
-const state = { alumno: null, grupo: "", mode: "aprender", problems: [], sid: null, turns: 0, finished: false };
-let bridge = null;
+// record: último registro de la sesión, listo para enviarse si el alumno cierra la página
+const state = { alumno: null, grupo: "", mode: "aprender", problems: [], sid: null, turns: 0, finished: false,
+                record: null };
+let worker = null;
+let engineLoaded = false;
 let engineReady = null;
+const pending = new Map();
+let nextCall = 0;
 
 // ------------------------------------------------------------------ utilidades
 function setStatus(text, busy = false) {
@@ -31,16 +37,6 @@ function show(id) {
   window.scrollTo(0, 0);
 }
 
-function loadScript(src) {
-  return new Promise((resolve, reject) => {
-    const s = document.createElement("script");
-    s.src = src;
-    s.onload = resolve;
-    s.onerror = () => reject(new Error("No se pudo descargar " + src));
-    document.head.appendChild(s);
-  });
-}
-
 const nextFrame = () => new Promise((r) => setTimeout(r, 30));
 
 async function sha256(text) {
@@ -49,25 +45,41 @@ async function sha256(text) {
 }
 
 // ------------------------------------------------------------------ motor
-async function loadEngine() {
+function loadEngine() {
   setStatus("Preparando el tutor… la primera vez tarda un poco.", true);
-  await loadScript(CFG.pyodide + "pyodide.js");
-  const py = await window.loadPyodide({ indexURL: CFG.pyodide });
-  await py.loadPackage(["sympy", "numpy"]);
-  const bundle = await (await fetch("bundle.json", { cache: "no-cache" })).json();
-  const home = "/home/pyodide";
-  for (const [path, content] of Object.entries(bundle.files)) {
-    const parts = path.split("/");
-    if (parts.length > 1) py.FS.mkdirTree(home + "/" + parts.slice(0, -1).join("/"));
-    py.FS.writeFile(home + "/" + path, content);
-  }
-  py.runPython(`import os, sys\nos.chdir("${home}")\nsys.path.insert(0, "${home}")`);
-  bridge = py.pyimport("bridge");
-  const data = JSON.parse(bridge.problems());
-  state.problems = data.problems;
-  renderProblems();
-  setStatus("Tutor listo");
-  setTimeout(() => setStatus(""), 2500);
+  return new Promise((resolve, reject) => {
+    worker = new Worker("worker.js", { type: "module" });
+    worker.onmessage = ({ data }) => {
+      if (data.type === "status") {
+        setStatus(data.text, true);
+      } else if (data.type === "ready") {
+        engineLoaded = true;
+        state.problems = JSON.parse(data.problems).problems;
+        renderProblems();
+        setStatus("Tutor listo");
+        setTimeout(() => setStatus(""), 2500);
+        resolve();
+      } else if (data.type === "error") {
+        reject(new Error(data.message));
+      } else if (pending.has(data.id)) {
+        const call = pending.get(data.id);
+        pending.delete(data.id);
+        if ("error" in data) call.reject(new Error(data.error));
+        else call.resolve(data.result);
+      }
+    };
+    worker.onerror = (ev) => reject(new Error(ev.message || "No se pudo iniciar el tutor"));
+    worker.postMessage({ type: "init", indexURL: CFG.pyodide });
+  });
+}
+
+// llamada a una función del motor (web/bridge.py); devuelve su JSON
+function engine(fn, ...args) {
+  return new Promise((resolve, reject) => {
+    const id = ++nextCall;
+    pending.set(id, { resolve, reject });
+    worker.postMessage({ id, fn, args });
+  });
 }
 
 // ------------------------------------------------------------------ registro
@@ -78,10 +90,11 @@ function saveQueue(items) {
   try { localStorage.setItem(QUEUE_KEY, JSON.stringify(items.slice(-30))); } catch { /* sin espacio */ }
 }
 
-function currentRecord() {
-  if (!bridge || !state.sid) return null;
-  const rec = JSON.parse(bridge.record());
-  return Object.assign(rec, { alumno_h: state.alumno, grupo: state.grupo, clave: CFG.clave });
+async function refreshRecord() {
+  if (!engineLoaded || !state.sid) return null;
+  const rec = JSON.parse(await engine("record"));
+  state.record = Object.assign(rec, { alumno_h: state.alumno, grupo: state.grupo, clave: CFG.clave });
+  return state.record;
 }
 
 async function postRecord(rec) {
@@ -97,7 +110,7 @@ async function postRecord(rec) {
 }
 
 async function sendRecord() {
-  const rec = currentRecord();
+  const rec = await refreshRecord().catch(() => null);
   if (!rec) return;
   const pending = queue().filter((r) => r.sesion !== rec.sesion);
   pending.push(rec);
@@ -107,9 +120,8 @@ async function sendRecord() {
 }
 
 document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState !== "hidden" || !CFG.registroURL) return;
-  const rec = currentRecord();
-  if (rec) navigator.sendBeacon(CFG.registroURL, new Blob([JSON.stringify(rec)], { type: "text/plain" }));
+  if (document.visibilityState !== "hidden" || !CFG.registroURL || !state.record) return;
+  navigator.sendBeacon(CFG.registroURL, new Blob([JSON.stringify(state.record)], { type: "text/plain" }));
 });
 
 // ------------------------------------------------------------------ pantalla 1
@@ -203,11 +215,16 @@ function renderProblemCard(p) {
 }
 
 async function startProblem(pid, custom = "", method = "") {
-  if (!bridge) { setStatus("El tutor todavía se está preparando…", true); await engineReady; }
+  if (!engineLoaded) {
+    setStatus("El tutor todavía se está preparando…", true);
+    await engineReady;
+    if (!engineLoaded) return;
+  }
   if (state.sid && !state.finished) await sendRecord();
-  const res = JSON.parse(bridge.start(pid, state.mode, custom, method));
+  const res = JSON.parse(await engine("start", pid, state.mode, custom, method));
   if (res.error) { alert(res.error); return; }
   state.sid = res.sid;
+  state.record = null;
   state.turns = 0;
   state.finished = false;
   $("#chat").innerHTML = "";
@@ -257,7 +274,7 @@ async function send(text) {
   await nextFrame();
   let res;
   try {
-    res = JSON.parse(bridge.reply(text));
+    res = JSON.parse(await engine("reply", text));
   } catch (err) {
     typing.remove();
     addMessage("error", "Algo falló al revisar tu respuesta. Intenta escribirla de otra forma.");
@@ -277,6 +294,7 @@ async function send(text) {
   setComposer(true);
   $("#entrada").focus();
   if (state.turns % 5 === 0) sendRecord();
+  else refreshRecord().catch(() => {});
 }
 
 function autoGrow() {

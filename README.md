@@ -73,8 +73,10 @@ Los alumnos también pueden capturar un problema propio con el mismo formato.
 
 El motor corre en el navegador con [Pyodide](https://pyodide.org), así que el sitio es estático:
 no necesita servidor, atiende a cualquier número de alumnos a la vez y funciona en celular o en las
-computadoras del laboratorio. La primera carga descarga unos 15 MB (Python y SymPy); después
-queda en la caché del navegador.
+computadoras del laboratorio. La primera carga descarga unos 14 MB (Python, SymPy y NumPy); después
+queda en la caché del navegador. El motor arranca en un hilo aparte (`web/worker.js`) para que la
+página no se congele mientras tanto, y guarda en el dispositivo las bibliotecas ya compiladas, así
+que a partir de la segunda visita arranca más rápido.
 
 ```bash
 python tools/build_web.py                              # arma site/
@@ -133,7 +135,7 @@ tutor/engine.py      plan de pasos, escalera 0–5, modos, indicadores
 tutor/problems.py    banco de problemas
 tutor/llm.py         cliente de modelos de lenguaje (opcional)
 tutor/store.py       SQLite y seudonimización (versión con servidor)
-web/                 página, puente con el motor y configuración del sitio
+web/                 página, hilo del motor, puente con el motor y configuración del sitio
 problemas/           banco de problemas
 data/                banco de errores (editable en Excel)
 docs/                registro en Google Sheets

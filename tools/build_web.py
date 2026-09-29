@@ -31,7 +31,7 @@ def main() -> None:
         files[f"problemas/{path.name}"] = path.read_text(encoding="utf-8")
     files["bridge.py"] = (ROOT / "web" / "bridge.py").read_text(encoding="utf-8")
     (SITE / "bundle.json").write_text(json.dumps({"files": files}, ensure_ascii=False), encoding="utf-8")
-    for name in ("index.html", "app.js", "style.css", "config.js"):
+    for name in ("index.html", "app.js", "worker.js", "style.css", "config.js"):
         src = ROOT / "web" / name
         if src.exists():
             shutil.copy(src, SITE / name)
