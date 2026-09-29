@@ -103,7 +103,9 @@ async function postRecord(rec) {
     const r = await fetch(CFG.registroURL, {
       method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(rec),
     });
-    return r.ok;
+    // Apps Script contesta 200 aunque rechace el registro (clave, falta SECRETO): hay que leer el cuerpo
+    // para no perderlo. Reenviar es seguro porque el script actualiza el renglón de la sesión.
+    return r.ok && (await r.json()).ok === true;
   } catch {
     return false;
   }
@@ -122,6 +124,14 @@ async function sendRecord() {
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState !== "hidden" || !CFG.registroURL || !state.record) return;
   navigator.sendBeacon(CFG.registroURL, new Blob([JSON.stringify(state.record)], { type: "text/plain" }));
+  // si esta sesión tenía un envío pendiente, se reemplaza por la versión nueva: al reintentarlo
+  // la próxima vez, la vieja sobrescribiría en la hoja lo que acaba de mandar el beacon
+  const pending = queue();
+  const i = pending.findIndex((r) => r.sesion === state.record.sesion);
+  if (i >= 0) {
+    pending[i] = state.record;
+    saveQueue(pending);
+  }
 });
 
 // ------------------------------------------------------------------ pantalla 1

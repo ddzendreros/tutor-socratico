@@ -7,10 +7,42 @@
  *
  * Propiedades del script (Configuración del proyecto > Propiedades del script):
  *   SECRETO  texto largo y aleatorio; sin él no se puede vincular un código con una boleta.
+ *            configurar() lo genera si no existe.
  *   CLAVE    (opcional) la misma clave que config.js; evita registros ajenos a la clase.
  */
 const HOJA = "sesiones";
 const FIJAS = ["sesion", "alumno", "grupo", "problema", "metodo", "modo", "inicio", "fin"];
+
+/**
+ * Se ejecuta una vez desde el editor (botón Ejecutar): pide los permisos, crea la
+ * hoja y genera el SECRETO. Volver a ejecutarla no cambia un SECRETO existente.
+ */
+function configurar() {
+  const libro = SpreadsheetApp.getActive();
+  libro.setSpreadsheetTimeZone("America/Mexico_City");
+  const hoja = libro.getSheetByName(HOJA) || libro.insertSheet(HOJA);
+  if (!hoja.getLastRow()) {
+    hoja.getRange(1, 1, 1, FIJAS.length).setValues([FIJAS]);
+    hoja.setFrozenRows(1);
+  }
+  const props = PropertiesService.getScriptProperties();
+  if (!props.getProperty("SECRETO")) {
+    props.setProperty("SECRETO", Utilities.getUuid() + Utilities.getUuid());
+  }
+  Logger.log("Listo. Falta Implementar > Nueva implementación > Aplicación web.");
+}
+
+// Abrir la URL /exec en el navegador sirve para comprobar que la implementación responde.
+function doGet() {
+  const props = PropertiesService.getScriptProperties();
+  const hoja = SpreadsheetApp.getActive().getSheetByName(HOJA);
+  return respuesta({
+    ok: true,
+    secreto: Boolean(props.getProperty("SECRETO")),
+    clave: Boolean(props.getProperty("CLAVE")),
+    sesiones: hoja ? Math.max(hoja.getLastRow() - 1, 0) : 0,
+  });
+}
 
 function doPost(e) {
   const lock = LockService.getScriptLock();
