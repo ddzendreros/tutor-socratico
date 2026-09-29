@@ -2,9 +2,9 @@
 import pytest
 
 from tutor.circuit import parse_netlist
-from tutor.engine import Session
+from tutor.engine import MODES, Session
 from tutor.problems import load_bank
-from tutor.reduction import Reducer
+from tutor.reduction import Reducer, display
 
 BANK = {p.id: p for p in load_bank()}
 
@@ -90,6 +90,14 @@ def test_node_types_and_direct_equation():
     assert s.reply("V1 = 10").startswith("Correcto")
 
 
+def test_mesh_currents_in_nodal_equation_are_reported():
+    s = session("nodos-01", "practicar")
+    msg = s.reply("I1 + I2 = 5")
+    assert "No reconozco: I1, I2. Usa V1, V2" in msg
+    assert "V1(1/4 + 1/2) − V2(1/2) = 5" in msg      # el ejemplo usa las incógnitas del problema
+    assert s.step.kind == "equations"
+
+
 def test_shared_branch_asked_once():
     s = session("mallas-01", "aprender")
     st = next(x for x in s.steps if x.kind == "shared_expr")
@@ -140,3 +148,94 @@ def test_mesh_spec_is_validated(spec):
     c = parse_netlist("V1 a 0 12\nR1 a b 4\nR2 b 0 2\nR3 b c 6\nV2 0 c 6\n" + spec)
     with pytest.raises(CircuitError):
         an.default_meshes(c)
+
+
+# ------------------------------------------------------------ banco completo
+def g(x):
+    return f"{float(x):.6g}"
+
+
+def correct_answer(s):
+    """Lo que contesta, en el paso actual, un alumno que hace todo bien."""
+    st, k = s.step, s.step.kind
+    truth = s._values_truth()
+
+    def eq(i):
+        q = s.refs[i]
+        return " + ".join(f"({g(c)})*{v}" for v, c in q.coefs.items() if float(c)) + f" = {g(q.rhs)}"
+
+    def vals(names):
+        return ", ".join(f"{n} = {g(truth[n])}" for n in names)
+
+    def row(name):
+        i, v, p = s._branch_values(name)
+        return f"{name}: I = {g(i)} A, V = {g(v)} V, P = {g(p)} W"
+
+    if s.justify_pending is not None:
+        return "porque las corrientes van en sentidos opuestos en esa rama"
+    if k == "submit":
+        units = {"I": "A", "V": "V", "P": "W"}
+        parts = [eq(i) for i in range(len(s.refs))] + ([vals(s.vars)] if s.vars else [])
+        parts += [f"Req = {g(s.reducer.req)} ohm"] if s.reducer else []
+        parts += [f"{t.quantity} = {g(abs(v))} {units.get(t.quantity, '')}"
+                  for t, v in zip(s.targets, s.target_truth)]
+        return "\n".join(parts)
+    if k == "reduce":
+        mv = s.reducer.moves()[0]
+        names = [display(n) for n in mv.members]
+        return f"{', '.join(names[:-1])} y {names[-1]} en {mv.kind} = {g(mv.value)}"
+    if k == "verify":
+        pc = s._power_totals()
+        return f"PE = {g(pc)} W y PC = {g(pc)} W" if st.data.get("balance") else "con el balance de potencias"
+    if k == "sim":
+        if s.vars:
+            return vals(s.vars)
+        if s.targets:
+            return ", ".join(g(v) for v in s.target_truth)
+        return f"En el simulador medí {g(s._branch_values(s.table_rows[0])[0])} A en {s.table_rows[0]}"
+    return {
+        "intro": lambda: "Me dan las fuentes y las resistencias y necesito las corrientes y voltajes",
+        "mesh_count": lambda: str(len(s.loops)),
+        "node_count": lambda: str(len(s.circuit.non_ground_nodes)),
+        "mesh_define": lambda: ", ".join(s.loops[st.pending[0]].names),
+        "mesh_types": lambda: ", ".join(f"{i + 1} {s.types[i]}" for i in st.pending),
+        "node_types": lambda: ", ".join(f"{i} {s.types[i]}" for i in st.pending),
+        "shared_id": lambda: ", ".join(st.data["shared"]),
+        "shared_expr": lambda: "I{} - I{}".format(*(m + 1 for m in st.data["shared"][st.pending[0]])),
+        "equations": lambda: eq(st.pending[0]),
+        "values": lambda: vals(st.pending),
+        "concept": lambda: "comparten el mismo voltaje; en serie la misma corriente; ley de ohm V = R*I",
+        "targets": lambda: g(s.target_truth[st.pending[0]]),
+        "table": lambda: "\n".join(row(n) for n in st.pending),
+        "metacog": lambda: "Aprendí a revisar las ramas compartidas y las fuentes antes de cada ecuación",
+    }[k]()
+
+
+@pytest.mark.parametrize("mode", list(MODES))
+@pytest.mark.parametrize("pid", sorted(BANK))
+def test_every_problem_can_be_finished_in_every_mode(pid, mode):
+    p = BANK[pid]
+    s = Session(p.circuit, p.method, mode)
+    s.start()
+    for _ in range(60):
+        if s.finished:
+            break
+        s.reply(correct_answer(s))
+    assert s.finished
+    assert s.indicators()["Códigos de error"] == ""
+
+
+def test_verify_mode_reviews_results_without_equations():
+    s = session("ohm-01", "verificar")
+    msg = s.reply("I = V/R = 20/10 = 2 A, P = V*I = 40 W")
+    assert "✔ la corriente en R1" in msg and "✔ la potencia en R1" in msg
+    assert s.step.kind == "verify"
+
+
+def test_verify_mode_does_not_judge_results_as_equations():
+    s = session("mallas-01", "verificar")
+    msg = s.reply("30I1 - 20I2 = 0\n50I2 - 20I1 = 100\nI1 = 1.81818, I2 = 2.72727")
+    assert "✘" not in msg
+    s = session("nodos-01", "verificar")
+    msg = s.reply("V1(1/4+1/2) - V2(1/2) = 5\nV2(1/2+1/10) - V1(1/2) = -7\nV1 = -2.5 V, V2 = -13.75 V")
+    assert "✔ V1 = -2.5" in msg and "✔ V2 = -13.75" in msg

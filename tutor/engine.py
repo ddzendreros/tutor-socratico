@@ -461,6 +461,15 @@ class Session:
                     f"{', '.join(self.vars)}; en LCK, las corrientes que salen del nodo son positivas.")
         return ""
 
+    def _format_example(self) -> str:
+        """Ejemplo de formato con las incógnitas de este problema."""
+        if not self.vars:
+            return "I = 2 A"
+        a, b = self.vars[0], self.vars[1] if len(self.vars) > 1 else None
+        if self.method == "nodos":
+            return f"{a}(1/4 + 1/2) − {b}(1/2) = 5" if b else f"{a}(1/4 + 1/2) = 5"
+        return f"6{a} − 2{b} = 12" if b else f"6{a} = 12"
+
     def _metacog_q2(self) -> str:
         codes = self._main_errors()
         if codes:
@@ -674,7 +683,8 @@ class Session:
                               + self._step_prompt(step), self.level)
         if not out.ok and out.code in NO_PENALTY:
             if out.code == "PARSE_ERROR":
-                extra = self.bank.text("PARSE_ERROR", 1, vars=", ".join(self.vars) or "los datos")
+                extra = self.bank.text("PARSE_ERROR", 1, vars=", ".join(self.vars) or "los datos",
+                                       ejemplo=self._format_example())
             else:
                 extra = "" if out.partial_msg.rstrip().endswith("?") else self._step_prompt(self.step)
             return self._emit(f"{out.partial_msg} {extra}", self.level)
@@ -783,6 +793,7 @@ class Session:
     def _fill_args(self, step: Step, detail: dict) -> dict:
         args = dict(detail)
         args.setdefault("vars", ", ".join(self.vars))
+        args.setdefault("ejemplo", self._format_example())
         if "malla" in detail:
             a = detail["malla"]
             args["a"] = a
@@ -1287,6 +1298,15 @@ class Session:
             return None
         expected = ([(v, self.truth[v]) for v in self.vars] if self.vars
                     else [(t.describe(), tv) for t, tv in zip(self.targets, self.target_truth)])
+        if not expected:
+            # sólo Req y la tabla: basta con que lo medido coincida con alguna magnitud del circuito
+            known = [abs(x) for n in self.table_rows for x in self._branch_values(n)]
+            known += [float(self.reducer.req)] if self.reducer else []
+            if any(close(abs(c.value), k, 0.05) for c in claims if c.unit != "Ω" for k in known):
+                self.c["simulador"] = True
+                return Outcome(True, item="s", partial_msg="Los resultados son consistentes con tus cálculos.")
+            return Outcome(False, "VALUE_WRONG", {"ecuacion_falla": "tus mediciones"},
+                           partial_msg="Lo que mediste no coincide con tus cálculos.")
         vals = self._assign_claims(claims, [n for n, _ in expected])
         if not vals:
             return None
@@ -1499,6 +1519,8 @@ class Session:
                     continue
                 d = diagnose_equation(pe, self.refs, eq_step.pending, self.mappings, self._prefix,
                                       self.circuit, self.loops)
+                if d.code == "EQ_VALID_COMBINATION" and sum(1 for c in pe.coefs.values() if abs(c) > 1e-12) == 1:
+                    continue    # "I1 = 1.8182" es un resultado: se revisa abajo con los valores
                 if d.ok and d.detail["index"] in eq_step.pending:
                     eq_step.done.append(d.detail["index"])
                     self._narrow(pe)
@@ -1517,6 +1539,22 @@ class Session:
                     report.append(f"✔ {c.var} = {c.value:g}")
                 else:
                     report.append(f"✘ {c.var} = {c.value:g}")
+        if eq_step is None and val_step is None:
+            # Ohm y serie/paralelo: se reconocen los resultados; lo que falte se pregunta por pasos
+            nums = [abs(c.value) for c in parse_numbers(text) if c.unit != "Ω"]
+            if not nums:
+                return None
+            red = next((s_ for s_ in self.steps if s_.kind == "reduce"), None)
+            if red and "req" in red.pending and any(close(v, float(self.reducer.req), TABLE_TOL) for v in nums):
+                red.done.append("req")
+                report.append(f"✔ Req = {fmt(self.reducer.req)} Ω")
+            tg = next((s_ for s_ in self.steps if s_.kind == "targets"), None)
+            for i in list(tg.pending) if tg else []:
+                if any(close(v, abs(self.target_truth[i]), TABLE_TOL) for v in nums):
+                    tg.done.append(i)
+                    report.append(f"✔ {self.targets[i].describe()}")
+            if not report:
+                report.append("todavía no encuentro los resultados que pide el problema")
         if not report:
             return None
         step.items, step.done = ["s"], ["s"]

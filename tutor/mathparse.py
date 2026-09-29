@@ -2,6 +2,7 @@
 valores numéricos con unidades y referencias a elementos del circuito."""
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass
 
@@ -16,6 +17,9 @@ _TRANSFORMS = standard_transformations + (implicit_multiplication_application, c
 _PREFIX = {"": 1.0, "k": 1e3, "m": 1e-3, "u": 1e-6, "µ": 1e-6, "μ": 1e-6, "M": 1e6}
 
 _VAR_RE = re.compile(r"(?<![A-Za-z])([IiVv])\s*_?\s*\{?([A-Za-z]?\d+|[a-z])\}?(?![A-Za-z])")
+# SymPy parte 'I1' en I*1 (I es la unidad imaginaria) y trae E, S, N, O, Q predefinidos:
+# si el alumno los escribe se leen como símbolos para decirle que no se reconocen
+_LOOSE_NAME_RE = re.compile(r"(?<![A-Za-z0-9_.])(?:[A-Za-z]+\d[A-Za-z0-9]*|[IESNOQ])(?![A-Za-z0-9_])")
 
 
 _UNIT_PREFIX = {"k": 1e3, "K": 1e3, "M": 1e6, "m": 1e-3, "µ": 1e-6, "μ": 1e-6, "u": 1e-6}
@@ -119,9 +123,10 @@ def parse_expression(text: str, allowed: list[str],
     constants = {k: v for k, v in (constants or {}).items() if k not in allowed}
     t = prepare(text, allowed, constants)
     t = re.sub(r"\b[Aa]\b|\bamperes?\b|\bvolts?\b", "", t)
+    names = list(allowed) + list(constants)
+    loose = [n for n in dict.fromkeys(_LOOSE_NAME_RE.findall(t)) if n not in names]
     try:
-        expr = parse_expr(t, local_dict=_local_dict(list(allowed) + list(constants)),
-                          transformations=_TRANSFORMS)
+        expr = parse_expr(t, local_dict=_local_dict(names + loose), transformations=_TRANSFORMS)
     except Exception as exc:  # noqa: BLE001 - errores de sintaxis del alumno
         raise ParseError(f"No pude leer la expresión '{text}'.") from exc
     if not isinstance(expr, sp.Expr):
@@ -160,8 +165,13 @@ def parse_linear_equation(text: str, allowed: list[str],
     cross = any(expr.coeff(a).has(b) for a in syms for b in syms if a != b)
     if not poly_ok or cross:
         raise ParseError("La ecuación debe ser lineal en las incógnitas.")
-    coefs = {v: float(expr.coeff(sp.Symbol(v))) for v in allowed}
-    const = float(expr.subs({s: 0 for s in syms}))
+    try:
+        coefs = {v: float(expr.coeff(sp.Symbol(v))) for v in allowed}
+        const = float(expr.subs({s: 0 for s in syms}))
+    except TypeError as exc:   # complejos, p. ej. sqrt(-1)
+        raise ParseError(f"No pude leer la ecuación '{text}'.") from exc
+    if not all(math.isfinite(x) for x in [*coefs.values(), const]):
+        raise ParseError(f"No pude leer la ecuación '{text}'.")
     if all(abs(c) < 1e-12 for c in coefs.values()):
         raise ParseError("La ecuación no contiene incógnitas.")
     return ParsedEq(coefs, -const, text)
@@ -170,8 +180,9 @@ def parse_linear_equation(text: str, allowed: list[str],
 # ------------------------------------------------------------------ números
 _NUM_RE = re.compile(
     r"(?:(?P<var>\b[A-Za-z]{1,3}_?\{?[A-Za-z0-9]{0,3}\}?)\s*(?:=|es|vale|:)\s*)?"
-    r"(?<![A-Za-z0-9_.])(?P<num>[+-]?\s?\d+(?:[.,]\d+)?(?:[eE][+-]?\d+)?)\s*"
-    r"(?P<pre>[kmuµμM])?\s*(?P<unit>Ω|ohms?|A|V|W|amperes?|volts?|watts?)?"
+    # la unidad va en el mismo renglón y no es el inicio de un nombre: en "= -7⏎V1 = 2" la V es de V1
+    r"(?<![A-Za-z0-9_.])(?P<num>[+-]?\s?\d+(?:[.,]\d+)?(?:[eE][+-]?\d+)?)[ \t]*"
+    r"(?P<pre>[kmuµμM])?[ \t]*(?P<unit>(?:Ω|ohms?|A|V|W|amperes?|volts?|watts?)(?![A-Za-z0-9_]))?"
 )
 
 

@@ -8,6 +8,7 @@ from tutor import analysis as an
 from tutor.circuit import CircuitError, Target, parse_netlist, parse_value
 from tutor.diagnose import diagnose_equation, diagnose_value, mesh_mappings
 from tutor.engine import Session
+from tutor.mathparse import ParseError
 from tutor.mathparse import parse_linear_equation as P
 from tutor.mathparse import parse_numbers
 from tutor.solver import equivalent_resistance, solve
@@ -158,6 +159,16 @@ def test_value_diagnosis():
 def test_numbers_parsing():
     got = parse_numbers("I1 = 2.45 A, I2 = 1364 mA", ["I1", "I2"])
     assert [(g.var, round(g.value, 3)) for g in got] == [("I1", 2.45), ("I2", 1.364)]
+    # la V de V1 en el renglón siguiente no es la unidad del número anterior
+    got = parse_numbers("V2(1/2) = -7\nV1 = -2.5 V", ["V1", "V2"])
+    assert (got[-1].var, got[-1].value) == ("V1", -2.5)
+
+
+@pytest.mark.parametrize("eq", ["I1 + I2 = 5", "I = V/R", "E + V1 = 3", "V1 = sqrt(-1)", "V1 = 1e400"])
+def test_unknown_names_and_bad_numbers_are_parse_errors(eq):
+    # en nodos, 'I1' no es incógnita: SymPy lo leería como I*1 (número imaginario)
+    with pytest.raises(ParseError):
+        P(eq, ["V1", "V2"])
 
 
 # ------------------------------------------------------------------ flujo tutor
