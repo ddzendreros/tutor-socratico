@@ -1,0 +1,12 @@
+TITULO: Resistencia vista desde A-B
+TEMA: serie_paralelo
+METODO: serie_paralelo
+NIVEL: básico
+FUENTE: Material de clase, Tema 6 (Thévenin y Norton), Ejemplo 1
+ENUNCIADO: Fuente de 12 V con R1 = 3 Ω hacia la terminal A y R2 = 6 Ω entre A y B; la terminal B es el riel inferior (nodo 0). Apagando la fuente, ¿cuál es la resistencia entre A y B? Con la fuente encendida, ¿cuánto vale el voltaje en R2?
+PIDE: Req A-0; V R2
+RESPUESTA: Req=2 V R2=8
+
+V1 x 0 12
+R1 x A 3
+R2 A 0 6

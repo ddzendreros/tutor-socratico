@@ -1,0 +1,14 @@
+TITULO: Nodos · Caso 1: nodos reales
+TEMA: nodos
+METODO: nodos
+NIVEL: básico
+FUENTE: Material de clase, Tema 5 (Método de nodos), Ejemplo 1
+ENUNCIADO: Una fuente de 5 A entra al nodo 1 y una de 7 A sale del nodo 2 hacia la referencia. R1 = 4 Ω del nodo 1 a la referencia, R2 = 2 Ω entre los nodos 1 y 2, R3 = 10 Ω del nodo 2 a la referencia. Encuentre los voltajes de nodo y V, I y P en cada resistencia.
+PIDE: VIP
+RESPUESTA: V1=-2.5 V2=-13.75
+
+IX 0 1 5
+R1 1 0 4
+R2 1 2 2
+R3 2 0 10
+IY 2 0 7

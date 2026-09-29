@@ -1,0 +1,15 @@
+# Entorno local
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+
+# Datos de sesiones (contienen respuestas de alumnos)
+data/*.db
+exports/
+
+# Material con derechos de autor y respaldos locales
+Referencias/
+*.zip
+site/

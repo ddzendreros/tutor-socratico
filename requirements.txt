@@ -1,0 +1,7 @@
+sympy>=1.13
+networkx>=3.2
+numpy>=1.26
+httpx>=0.27
+gradio>=5.0,<7
+python-dotenv>=1.0
+pytest>=8.0

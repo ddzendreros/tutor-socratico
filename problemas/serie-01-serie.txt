@@ -1,0 +1,13 @@
+TITULO: Serie · Tres resistencias en serie
+TEMA: serie_paralelo
+METODO: serie_paralelo
+NIVEL: básico
+FUENTE: Material de clase, Temas 1 y 2 (circuito serie)
+ENUNCIADO: Fuente de 24 V con R1 = 10 Ω, R2 = 20 Ω y R3 = 30 Ω en serie. Calcula la resistencia equivalente y V, I y P en cada resistencia.
+PIDE: Req VT; VIP
+RESPUESTA: Req=60
+
+VT a 0 24
+R1 a b 10
+R2 b c 20
+R3 c 0 30

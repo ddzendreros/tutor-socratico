@@ -1,0 +1,15 @@
+TITULO: Mallas · Dos fuentes y resistencia compartida
+TEMA: mallas
+METODO: mallas
+NIVEL: básico
+FUENTE: Caso patrón del tutor socrático (especificación pedagógica)
+ENUNCIADO: Malla 1: fuente de 12 V, resistencia de 4 Ω y resistencia compartida de 2 Ω. Malla 2: fuente de 6 V, resistencia de 6 Ω y la resistencia compartida de 2 Ω. Las corrientes de malla I1 e I2 se consideran en sentido horario. Determina I1 e I2.
+RESPUESTA: I1=2.455 I2=1.364
+
+V1 a 0 12
+R1 a b 4
+R2 b 0 2
+R3 b c 6
+V2 0 c 6
+MALLA 1: V1 R1 R2
+MALLA 2: R2 R3 V2

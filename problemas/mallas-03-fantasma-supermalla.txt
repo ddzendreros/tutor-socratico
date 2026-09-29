@@ -1,0 +1,21 @@
+TITULO: Mallas · Malla fantasma y supermalla
+TEMA: mallas
+METODO: mallas
+NIVEL: avanzado
+FUENTE: Material de clase, Tema 4 (Método de mallas), ejemplo con mallas I a IV
+ENUNCIADO: IX = 5 A alimenta directamente la malla I (arriba). IY = 20 A es compartida por las mallas III y IV. VX = 60 V a la derecha. R1 = 2 Ω, R2 = 1 Ω, R3 = 2 Ω, R4 = 2 Ω, R5 = 1 Ω. Encuentre V, I y P en cada resistencia.
+PIDE: VIP
+RESPUESTA: I1=5 I2=-5.47 I3=-16.19 I4=3.81
+
+R1 m0 0 2
+R2 m0 m1 1
+R3 m1 0 2
+R4 m1 m2 2
+IX m0 m2 5
+IY 0 m2 20
+R5 m2 m3 1
+VX m3 0 60
+MALLA 1: IX R4 R2
+MALLA 2: R1 R2 R3
+MALLA 3: R3 R4 IY
+MALLA 4: IY R5 VX

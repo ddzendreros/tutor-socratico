@@ -1,0 +1,14 @@
+TITULO: Nodos · Caso 2: nodos reales y fantasma
+TEMA: nodos
+METODO: nodos
+NIVEL: básico
+FUENTE: Material de clase, Tema 5 (Método de nodos), Ejemplo 2
+ENUNCIADO: Una fuente de 20 V fija el nodo 1 y una de 35 V (con su terminal + en la referencia) fija el nodo 3. R1 = 3 Ω entre los nodos 1 y 2, R2 = 5 Ω entre los nodos 2 y 3, R3 = 10 Ω del nodo 1 a la referencia y R4 = 1 Ω del nodo 2 a la referencia. Calcule los voltajes de nodo.
+RESPUESTA: V2=-0.217
+
+VA 1 0 20
+VB 0 3 35
+R1 1 2 3
+R2 2 3 5
+R3 1 0 10
+R4 2 0 1

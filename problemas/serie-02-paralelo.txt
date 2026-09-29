@@ -1,0 +1,13 @@
+TITULO: Paralelo · Tres ramas en paralelo
+TEMA: serie_paralelo
+METODO: serie_paralelo
+NIVEL: básico
+FUENTE: Material de clase, Temas 1 y 2 (circuito paralelo)
+ENUNCIADO: Fuente de 12 V con R1 = 10 Ω, R2 = 20 Ω y R3 = 30 Ω en paralelo. Calcula la resistencia equivalente y la corriente de cada rama.
+PIDE: Req VT; VIP
+RESPUESTA: Req=5.45
+
+VT a 0 12
+R1 a 0 10
+R2 a 0 20
+R3 a 0 30

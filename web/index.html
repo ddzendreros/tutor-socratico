@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="es-MX">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Tutor Socrático · Circuitos</title>
+  <meta name="description" content="Tutor socrático para resolver problemas de circuitos eléctricos con preguntas y pistas graduadas.">
+  <link rel="stylesheet" href="style.css">
+  <script src="config.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M2 16h6l2-5 3 10 3-10 3 10 3-10 2 5h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></svg>
+      <span>Tutor socrático <em>· Circuitos eléctricos</em></span>
+    </div>
+    <div id="status" class="status" role="status" aria-live="polite"></div>
+  </header>
+
+  <main>
+    <!-- 1. Identificación -->
+    <section id="inicio" class="screen active">
+      <div class="intro">
+        <h1>Resuelve tú el circuito.<br><span>Yo te hago las preguntas.</span></h1>
+        <p>El tutor no te da la respuesta: te pregunta, revisa cada paso y te da pistas graduadas
+          sólo cuando las necesitas.</p>
+      </div>
+      <form id="form-inicio" class="card form" autocomplete="off">
+        <label>Boleta
+          <input id="boleta" name="boleta" inputmode="numeric" required>
+        </label>
+        <label>Grupo
+          <select id="grupo"></select>
+          <input id="grupo-texto" placeholder="Ej. 1CM1">
+        </label>
+        <label class="check">
+          <input id="consent" type="checkbox" required>
+          <span>Acepto que mis respuestas se usen, sin mi nombre, para investigación educativa.
+            Mi boleta se convierte en un código irreversible y no se guarda.</span>
+        </label>
+        <button class="primary" type="submit">Continuar</button>
+      </form>
+    </section>
+
+    <!-- 2. Elegir problema -->
+    <section id="elegir" class="screen">
+      <div class="modes" role="radiogroup" aria-label="Modo de trabajo" id="modes"></div>
+      <p id="mode-help" class="muted small"></p>
+      <div id="lista"></div>
+      <details class="card propio">
+        <summary>Capturar otro problema</summary>
+        <p class="small muted">Una fila por elemento: <code>R1 a b 10</code> (resistencia en Ω),
+          <code>V1 a 0 12</code> (fuente de voltaje, + en el primer nodo),
+          <code>I1 0 a 2</code> (fuente de corriente, del primer nodo al segundo). El nodo de
+          referencia es <code>0</code>. Para mallas, declara cada malla como está dibujada, con los
+          elementos en sentido horario: <code>MALLA 1: V1 R1 R2</code>. Qué pide:
+          <code>PIDE: VIP</code> (tabla de V, I y P), <code>PIDE: Req V1</code>, <code>PIDE: I R2</code>.</p>
+        <textarea id="propio" rows="8" spellcheck="false" placeholder="V1 a 0 12&#10;R1 a b 4&#10;R2 b 0 2&#10;R3 b c 6&#10;V2 0 c 6&#10;MALLA 1: V1 R1 R2&#10;MALLA 2: R2 R3 V2"></textarea>
+        <div class="row">
+          <select id="propio-metodo">
+            <option value="mallas">Método de mallas</option>
+            <option value="nodos">Método de nodos</option>
+            <option value="serie_paralelo">Serie y paralelo</option>
+            <option value="ohm">Ley de Ohm</option>
+          </select>
+          <button id="propio-empezar" class="primary" type="button">Empezar</button>
+        </div>
+      </details>
+    </section>
+
+    <!-- 3. Sesión -->
+    <section id="sesion" class="screen">
+      <div class="problem card" id="problema"></div>
+      <div id="chat" class="chat" aria-live="polite"></div>
+      <form id="composer" class="composer">
+        <textarea id="entrada" rows="1" placeholder="Escribe tu respuesta…"
+          spellcheck="false" autocomplete="off"></textarea>
+        <div class="actions">
+          <button type="button" id="pista" class="ghost" title="Pedir una pista">Pista</button>
+          <button type="submit" class="primary" id="enviar">Enviar</button>
+        </div>
+      </form>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

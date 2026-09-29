@@ -1,0 +1,15 @@
+TITULO: Mixto · Reto del circuito mixto
+TEMA: serie_paralelo
+METODO: serie_paralelo
+NIVEL: intermedio
+FUENTE: Material de clase, Temas 1 y 2 (reto: circuito mixto)
+ENUNCIADO: Fuente de 24 V. R1 = 10 Ω arriba a la izquierda; R2 = 30 Ω y R3 = 60 Ω verticales; R4 = 20 Ω arriba a la derecha, cuyo extremo baja por un cable directo al riel inferior. Determina la resistencia equivalente, la corriente total y V, I y P en cada resistencia.
+PIDE: Req VT; VIP
+RESPUESTA: Req=20
+NOTA: (para el profesor) Por el cable del lado derecho, R4 queda en paralelo con R2 y R3 (no en serie, como sugiere la pista de la diapositiva).
+
+VT a 0 24
+R1 a b 10
+R2 b 0 30
+R3 b 0 60
+R4 b 0 20
