@@ -1,7 +1,7 @@
-sympy>=1.13
-networkx>=3.2
-numpy>=1.26
-httpx>=0.27
-gradio>=5.0,<7
-python-dotenv>=1.0
-pytest>=8.0
+sympy==1.14.0
+numpy==2.5.4
+httpx==0.28.1
+pynacl==1.6.2
+psutil==7.2.2
+pywebview==6.2.1
+networkx==3.7

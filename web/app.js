@@ -1,10 +1,8 @@
-// Tutor socrático en el navegador: el motor (Python) corre con Pyodide en el
-// dispositivo del alumno, así que no hace falta ningún servidor. Corre en un hilo
-// aparte (worker.js) para que la página siga respondiendo mientras arranca.
+// Interfaz del Tutor Socrático de Circuitos.
 "use strict";
 
 const CFG = Object.assign(
-  { pyodide: "https://cdn.jsdelivr.net/pyodide/v314.0.7/full/", registroURL: "", clave: "", grupos: [] },
+  { grupos: [] },
   window.TUTOR_CONFIG || {}
 );
 const MODE_HELP = {
@@ -13,17 +11,13 @@ const MODE_HELP = {
   verificar: "Escribe tu procedimiento y resultados; el tutor los revisa sin resolver.",
   simulador: "Como Aprender, y al final compruebas en PhET o Multisim.",
 };
-const QUEUE_KEY = "tutor-registros-pendientes";
 
 const $ = (sel) => document.querySelector(sel);
 // record: último registro de la sesión, listo para enviarse si el alumno cierra la página
 const state = { alumno: null, grupo: "", mode: "aprender", problems: [], sid: null, turns: 0, finished: false,
                 record: null };
-let worker = null;
 let engineLoaded = false;
 let engineReady = null;
-const pending = new Map();
-let nextCall = 0;
 
 // ------------------------------------------------------------------ utilidades
 function setStatus(text, busy = false) {
@@ -45,94 +39,14 @@ async function sha256(text) {
 }
 
 // ------------------------------------------------------------------ motor
-function loadEngine() {
-  setStatus("Preparando el tutor… la primera vez tarda un poco.", true);
-  return new Promise((resolve, reject) => {
-    worker = new Worker("worker.js", { type: "module" });
-    worker.onmessage = ({ data }) => {
-      if (data.type === "status") {
-        setStatus(data.text, true);
-      } else if (data.type === "ready") {
-        engineLoaded = true;
-        state.problems = JSON.parse(data.problems).problems;
-        renderProblems();
-        setStatus("Tutor listo");
-        setTimeout(() => setStatus(""), 2500);
-        resolve();
-      } else if (data.type === "error") {
-        reject(new Error(data.message));
-      } else if (pending.has(data.id)) {
-        const call = pending.get(data.id);
-        pending.delete(data.id);
-        if ("error" in data) call.reject(new Error(data.error));
-        else call.resolve(data.result);
-      }
-    };
-    worker.onerror = (ev) => reject(new Error(ev.message || "No se pudo iniciar el tutor"));
-    worker.postMessage({ type: "init", indexURL: CFG.pyodide });
-  });
-}
-
-// llamada a una función del motor (web/bridge.py); devuelve su JSON
-function engine(fn, ...args) {
-  return new Promise((resolve, reject) => {
-    const id = ++nextCall;
-    pending.set(id, { resolve, reject });
-    worker.postMessage({ id, fn, args });
-  });
-}
+// Todavía sin conexión con el motor: la página no puede iniciar problemas.
+function loadEngine() { return Promise.resolve(); }
+function engine(fn, ...args) { return Promise.resolve("{}"); }
 
 // ------------------------------------------------------------------ registro
-function queue() {
-  try { return JSON.parse(localStorage.getItem(QUEUE_KEY) || "[]"); } catch { return []; }
-}
-function saveQueue(items) {
-  try { localStorage.setItem(QUEUE_KEY, JSON.stringify(items.slice(-30))); } catch { /* sin espacio */ }
-}
-
-async function refreshRecord() {
-  if (!engineLoaded || !state.sid) return null;
-  const rec = JSON.parse(await engine("record"));
-  state.record = Object.assign(rec, { alumno_h: state.alumno, grupo: state.grupo, clave: CFG.clave });
-  return state.record;
-}
-
-async function postRecord(rec) {
-  if (!CFG.registroURL) return false;
-  try {
-    const r = await fetch(CFG.registroURL, {
-      method: "POST", headers: { "Content-Type": "text/plain;charset=utf-8" }, body: JSON.stringify(rec),
-    });
-    // Apps Script contesta 200 aunque rechace el registro (clave, falta SECRETO): hay que leer el cuerpo
-    // para no perderlo. Reenviar es seguro porque el script actualiza el renglón de la sesión.
-    return r.ok && (await r.json()).ok === true;
-  } catch {
-    return false;
-  }
-}
-
-async function sendRecord() {
-  const rec = await refreshRecord().catch(() => null);
-  if (!rec) return;
-  const pending = queue().filter((r) => r.sesion !== rec.sesion);
-  pending.push(rec);
-  const left = [];
-  for (const r of pending) if (!(await postRecord(r))) left.push(r);
-  saveQueue(left);
-}
-
-document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState !== "hidden" || !CFG.registroURL || !state.record) return;
-  navigator.sendBeacon(CFG.registroURL, new Blob([JSON.stringify(state.record)], { type: "text/plain" }));
-  // si esta sesión tenía un envío pendiente, se reemplaza por la versión nueva: al reintentarlo
-  // la próxima vez, la vieja sobrescribiría en la hoja lo que acaba de mandar el beacon
-  const pending = queue();
-  const i = pending.findIndex((r) => r.sesion === state.record.sesion);
-  if (i >= 0) {
-    pending[i] = state.record;
-    saveQueue(pending);
-  }
-});
+// Todavía sin registro de sesiones.
+async function refreshRecord() { return null; }
+async function sendRecord() {}
 
 // ------------------------------------------------------------------ pantalla 1
 function initForm() {
@@ -351,11 +265,5 @@ renderModes();
 initSession();
 engineReady = loadEngine().catch((err) => {
   console.error(err);
-  setStatus("No se pudo cargar el tutor. Revisa tu conexión y recarga la página.");
-});
-// reintenta registros que no se pudieron enviar en sesiones anteriores
-engineReady.then(async () => {
-  const left = [];
-  for (const r of queue()) if (!(await postRecord(r))) left.push(r);
-  saveQueue(left);
+  setStatus("No se pudo cargar el tutor. Recarga la página.");
 });

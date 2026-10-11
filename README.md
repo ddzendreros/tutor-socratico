@@ -3,7 +3,8 @@
 Tutor que guía al estudiante con preguntas y pistas graduadas (escalera de andamiaje 0–5) para
 resolver problemas de circuitos de CD: Ley de Ohm y potencia, serie/paralelo, mallas (con mallas
 fantasma y supermallas) y nodos (con nodos fantasma y supernodos). Sigue el **método de formato**
-que se usa en clase y funciona con costo **$0**: corre en el navegador de cada alumno.
+que se usa en clase y tiene costo **$0**. Se está convirtiendo en una aplicación de escritorio para
+Windows 10/11 que funcione sin internet.
 
 ## Idea central
 
@@ -15,10 +16,10 @@ alumno contra esa solución, identifica el error concreto y decide la mínima ay
 | **Motor de circuitos** (`solver.py`, `analysis.py`) | Resuelve de forma exacta cualquier circuito DC resistivo (análisis nodal modificado con SymPy) y construye las ecuaciones de referencia de mallas y nodos, con los nombres de clase: ecuación directa, ecuación auxiliar, ecuación real, supernodo. |
 | **Diagnóstico** (`diagnose.py`, `reduction.py`) | Compara cada ecuación o valor del alumno con la referencia y con las ecuaciones que producirían los errores típicos: sumar corrientes en la rama compartida, invertir la polaridad de una fuente, usar R en vez de 1/R, sumar resistencias en paralelo, combinar resistencias que no están ni en serie ni en paralelo… |
 | **Política pedagógica** (`engine.py`, `data/banco_errores.csv`) | Plan de pasos, escalera de ayuda, modos (Aprender, Practicar, Verificar, Simulador), solicitud de justificación, verificación con balance de potencias o simulador, reflexión final e indicadores de la interacción. |
+| **Modelo de lenguaje** (`tutor/llm.py`) | Cliente de un modelo que corre en la misma computadora (`llama-server`, de llama.cpp). Sólo redacta los mensajes; no decide si una respuesta es correcta. En desarrollo. |
 
 Las decisiones pedagógicas son deterministas: todos los alumnos reciben la misma intervención ante
-el mismo error, lo que permite comparar resultados en la investigación. Un modelo de lenguaje es
-opcional y sólo se usa en la versión con servidor (ver *Modelo de lenguaje*).
+el mismo error, lo que permite comparar resultados en la investigación.
 
 ## Cómo sigue el método de clase
 
@@ -73,47 +74,13 @@ MALLA 2: VY R2 R3
 
 Los alumnos también pueden capturar un problema propio con el mismo formato.
 
-## Versión web (la que se usa en el salón)
+## Instalación
 
-El motor corre en el navegador con [Pyodide](https://pyodide.org), así que el sitio es estático:
-no necesita servidor, atiende a cualquier número de alumnos a la vez y funciona en celular o en las
-computadoras del laboratorio. La primera carga descarga unos 14 MB (Python, SymPy y NumPy); después
-queda en la caché del navegador. El motor arranca en un hilo aparte (`web/worker.js`) para que la
-página no se congele mientras tanto, y guarda en el dispositivo las bibliotecas ya compiladas, así
-que a partir de la segunda visita arranca más rápido.
+> Pendiente.
 
-```bash
-python tools/build_web.py                              # arma site/
-python -m http.server 8765 --directory site            # http://localhost:8765
-```
+## Construcción
 
-**Publicar en GitHub Pages ($0):** en el repositorio, *Settings > Pages > Source: GitHub Actions*.
-Cada `push` a `main` corre las pruebas, arma el sitio y lo publica
-(`.github/workflows/pages.yml`).
-
-**Registro para la investigación:** ver [docs/REGISTRO.md](docs/REGISTRO.md). Cada sesión se
-guarda en una hoja de cálculo de Google del profesor mediante Apps Script. La boleta no sale del
-dispositivo: se envía su huella y el script la convierte en un código con una clave secreta.
-
-## Versión con servidor (Gradio)
-
-Útil para el profesor o para usar el extractor de enunciados con un modelo de lenguaje.
-
-```bash
-python -m venv .venv && .venv\Scripts\activate          # Linux/Mac: source .venv/bin/activate
-pip install -r requirements.txt
-copy .env.example .env                                  # llenar PSEUDONYM_SECRET y TEACHER_PASSWORD
-python app.py                                           # http://localhost:7860
-```
-
-El panel del profesor descarga `indicadores.csv` y `transcripciones.json`.
-
-### Modelo de lenguaje
-
-Opcional (`LLM_CHAIN` en `.env`): interpreta un enunciado en texto y lo convierte en la tabla del
-circuito, que el alumno confirma. Con `LLM_REPHRASE=1` además reescribe los mensajes del tutor,
-pasando por una guardia que bloquea resultados y ecuaciones pendientes; viene apagado para que la
-intervención sea la misma para todos. Con Ollama el contenido no sale de la computadora.
+> Pendiente.
 
 ## Pruebas
 
@@ -136,14 +103,13 @@ tutor/mathparse.py   lectura de ecuaciones y valores: unidades, prefijos, ia/ib,
 tutor/diagnose.py    ecuación o valor del alumno -> código de error
 tutor/reduction.py   reducción serie/paralelo paso a paso
 tutor/engine.py      plan de pasos, escalera 0–5, modos, indicadores
+tutor/llm.py         cliente de modelos de lenguaje
+tutor/privacidad.py  eliminación de información personal en texto libre
 tutor/problems.py    banco de problemas
-tutor/llm.py         cliente de modelos de lenguaje (opcional)
-tutor/store.py       SQLite y seudonimización (versión con servidor)
-web/                 página, hilo del motor, puente con el motor y configuración del sitio
+web/                 página, estilos y scripts de la interfaz
 problemas/           banco de problemas y sus dibujos
-tools/               armado del sitio y dibujos de los circuitos
+tools/               dibujos de los circuitos
 data/                banco de errores (editable en Excel)
-docs/                registro en Google Sheets
 ```
 
 ## Límites conocidos

@@ -1,7 +1,8 @@
-"""El LLM es opcional: cadena de respaldo, guardia anti-filtraciones y extracción."""
+"""Guardia anti-filtraciones y comportamiento sin modelo."""
 import json
 
 import httpx
+import pytest
 
 from tutor import analysis as an
 from tutor.circuit import parse_netlist
@@ -10,36 +11,12 @@ from tutor.llm import LLM, guard
 DOCX = "V1 a 0 12\nR1 a b 4\nR2 b 0 2\nR3 b c 6\nV2 0 c 6"
 
 
-def _transport(handler_by_host):
-    def handler(request: httpx.Request):
-        return handler_by_host[request.url.host](request)
-    return httpx.MockTransport(handler)
-
-
-def test_fallback_when_first_provider_is_rate_limited(monkeypatch):
-    monkeypatch.setenv("GROQ_API_KEY", "x")
-    calls = []
-
-    def ollama(req):
-        calls.append("ollama")
-        return httpx.Response(429, headers={"retry-after": "30"})
-
-    def groq(req):
-        calls.append("groq")
-        return httpx.Response(200, json={"choices": [{"message": {"content": "hola ¿qué ley aplicas?"}}]})
-
-    llm = LLM("ollama:qwen3:8b,groq:openai/gpt-oss-20b",
-              transport=_transport({"localhost": ollama, "api.groq.com": groq}))
-    assert llm.chat("s", "u") == "hola ¿qué ley aplicas?"
-    assert calls == ["ollama", "groq"]
-    llm.chat("s", "u")                      # ollama queda en enfriamiento
-    assert calls == ["ollama", "groq", "groq"]
-
-
-def test_no_provider_means_templates():
-    llm = LLM("")
+def test_sin_modelo_devuelve_none():
+    llm = LLM()
     assert not llm.enabled
-    assert llm.rephrase("¿Qué ley usarías?", "no sé", [], [], False, []) == "¿Qué ley usarías?"
+    texto, metricas = llm.chat([{"role": "user", "content": "hola"}])
+    assert texto is None
+    assert metricas == {}
 
 
 def test_guard_blocks_leaks():
@@ -54,15 +31,51 @@ def test_guard_blocks_leaks():
     assert not guard("Suma 7 ohms. ¿Qué obtienes?", base, forb, refs, False, ["I1", "I2"])[0]
 
 
-def test_extraction_is_validated():
-    payload = {"elements": [["V1", "a", "0", "12"], ["R1", "a", "b", "4"], ["R2", "b", "0", "8"]],
-               "targets": [{"quantity": "I", "element": "R2"}], "method": "serie_paralelo"}
-    ok = _transport({"localhost": lambda r: httpx.Response(
-        200, json={"message": {"content": json.dumps(payload)}})})
-    c, method, _ = LLM("ollama:qwen3:8b", transport=ok).extract_circuit("…")
-    assert c is not None and method == "serie_paralelo" and len(c.elements) == 3
+# ------------------------------------------------------------------ chat()
 
-    bad = _transport({"localhost": lambda r: httpx.Response(
-        200, json={"message": {"content": '{"elements": [["R1","a","b","4"]]}'}})})
-    c, _, err = LLM("ollama:qwen3:8b", transport=bad).extract_circuit("…")
-    assert c is None and "tierra" in err or "referencia" in err
+def test_chat_envia_cuerpo_y_llave():
+    vistas = []
+
+    def handler(request):
+        vistas.append(request)
+        return httpx.Response(200, json={
+            "choices": [{"message": {"content": "<think>x</think>Hola"}}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 2},
+            "timings": {"cache_n": 7},
+        })
+
+    llm = LLM(transport=httpx.MockTransport(handler))
+    llm.configurar("http://127.0.0.1:9", "k")
+    texto, m = llm.chat(
+        [{"role": "user", "content": "hola"}],
+        json_schema={"name": "n", "schema": {}},
+        id_slot=1, seed=3, temperature=0.0, max_tokens=50,
+    )
+    peticion = vistas[0]
+    assert peticion.url.path == "/v1/chat/completions"
+    assert peticion.headers["authorization"] == "Bearer k"
+    cuerpo = json.loads(peticion.content)
+    assert cuerpo["id_slot"] == 1 and cuerpo["cache_prompt"] is True and cuerpo["seed"] == 3
+    assert cuerpo["temperature"] == 0.0 and cuerpo["max_tokens"] == 50
+    assert cuerpo["response_format"] == {"type": "json_schema",
+                                         "json_schema": {"name": "n", "schema": {}}}
+    assert texto == "Hola"
+    assert m["tokens_prompt"] == 10
+    assert m["tokens_salida"] == 2
+    assert m["tokens_cache"] == 7
+    assert isinstance(m["ms"], int) and m["ms"] >= 0
+
+
+@pytest.mark.parametrize("respuesta", [
+    httpx.Response(500),
+    httpx.Response(200, text="<html>"),
+    httpx.Response(200, json={"error": {"message": "x"}}),
+    httpx.Response(200, json={"choices": [{"message": {"content": None}}]}),
+    httpx.Response(200, json={"choices": [{"message": {"content": ""}}]}),
+], ids=["http_500", "html", "sin_choices", "content_null", "content_vacio"])
+def test_chat_respuesta_defectuosa(respuesta):
+    llm = LLM(transport=httpx.MockTransport(lambda request: respuesta))
+    llm.configurar("http://127.0.0.1:9", "k")
+    texto, m = llm.chat([{"role": "user", "content": "hola"}])
+    assert texto is None
+    assert m == {}
