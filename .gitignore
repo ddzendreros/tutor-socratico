@@ -13,3 +13,13 @@ exports/
 Referencias/
 *.zip
 site/
+
+# Aplicación de escritorio
+vendor/
+build/
+dist/
+salida/
+*.gguf
+.venv*/
+*.tsk
+llave_privada*
