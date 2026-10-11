@@ -45,6 +45,21 @@ HELP_RE = re.compile(
     r"|no\s+me\s+sale|me\s+rindo|help|\?+)\b.{0,40}$", re.I)
 NO_PENALTY = {"PARSE_ERROR", "ELABORATE", "AHEAD"}
 NUM_WORDS = {"una": 1, "uno": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5, "seis": 6}
+CONFIANZA_KINDS = {
+    "equations", "values", "targets", "table", "reduce", "concept", "submit",
+}
+
+# sólo unidades escritas como palabra: una letra suelta ("A ver…", "¿qué es la V?") no es una respuesta,
+# y una respuesta con unidad de una letra ya lleva número
+_UNIDADES_RE = re.compile(r"\b(volts?|voltios?|amperes?|amperios?|amps?|watts?|ohms?)\b|Ω", re.I)
+_INTERROGATIVO_RE = re.compile(
+    r"^\s*¿?\s*(qu[eé]|por\s+qu[eé]|c[oó]mo|cu[aá]l(es)?|cu[aá]ndo|d[oó]nde|para\s+qu[eé])\b",
+    re.I,
+)
+_EMOCION_RE = re.compile(
+    r"\b(no\s+entiendo|me\s+frustra|ya\s+me\s+cans[eé]|jaj+a*|gracias|hola)\b",
+    re.I,
+)
 
 
 @dataclass
@@ -141,6 +156,9 @@ class Session:
         self.metacog_asked = False
         self.justify_pending: str | None = None
         self._why = False
+        self.ultimo_turno: dict = {}
+        self.entradas: list[str] = []
+        self._turno_eval: dict = {}
 
     # ================================================================ plan
     def _default_targets(self) -> list[Target]:
@@ -647,9 +665,56 @@ class Session:
         head = (f"Vamos a resolver este problema juntos con {METHODS[self.method].lower()}. "
                 "No te voy a dar la solución; la vamos a construir paso a paso.")
         conv = "" if self.mode in ("aprender", "simulador") else self._convention_text()
+        self._turno_eval = {
+            "paso_id": self.step.id,
+            "paso_tipo": self.step.kind,
+            "nivel_antes": 0,
+            "correcto": None,
+            "codigo": None,
+            "intentos_paso": self.step.data.get("_intentos", 0),
+        }
         return self._emit(f"{head} {conv} {self._step_prompt(self.step)}", 0)
 
+    def pregunta_actual(self) -> str:
+        return self._step_prompt(self.step)
+
+    def ruta_rapida(self, texto: str) -> str:
+        if self.justify_pending is not None:
+            return "motor"
+        t = (texto or "").strip()
+        if HELP_RE.search(t) or DIRECT_RE.search(t):
+            return "motor"
+        if "=" in t or re.search(r"\d", t) or _UNIDADES_RE.search(t):
+            return "motor"
+        if ("?" in t or "¿" in t
+                or _INTERROGATIVO_RE.match(t)
+                or _EMOCION_RE.search(t)):
+            return "ambiguo"
+        return "motor"
+
+    def pide_confianza(self, texto: str = "") -> bool:
+        # mismas condiciones que reply(): una justificación o una petición de ayuda no son un intento
+        t = (texto or "").strip()
+        if self.finished:
+            return False
+        if self.justify_pending is not None and not ("=" in t or re.fullmatch(r"[\d\s.,+\-−*/()AVWΩkm]+", t)):
+            return False
+        if DIRECT_RE.search(t) or (HELP_RE.search(t) and not re.search(r"\d\s*[IV]\d|=", t)):
+            return False
+        return (self.step.kind in CONFIANZA_KINDS
+                and self.step.data.get("_intentos", 0) == 0)
+
     def reply(self, text: str) -> str:
+        self.entradas.append(text)
+        paso_antes = self.step
+        self._turno_eval = {
+            "paso_id": paso_antes.id,
+            "paso_tipo": paso_antes.kind,
+            "nivel_antes": self.level,
+            "correcto": None,
+            "codigo": None,
+            "intentos_paso": paso_antes.data.get("_intentos", 0),
+        }
         text = (text or "").strip()
         self.transcript.append({"t": time.time(), "rol": "alumno", "texto": text,
                                 "paso": self.step.id, "nivel": self.level})
@@ -689,6 +754,8 @@ class Session:
                 extra = "" if out.partial_msg.rstrip().endswith("?") else self._step_prompt(self.step)
             return self._emit(f"{out.partial_msg} {extra}", self.level)
         self.c["intentos"] += 1
+        step.data["_intentos"] = step.data.get("_intentos", 0) + 1
+        self._turno_eval["intentos_paso"] = step.data["_intentos"]
         if step.kind == "submit":
             return self._after_submit(out)
         if out.ok:
@@ -714,13 +781,19 @@ class Session:
             self.c["errores"].append(bad.code)
             self.c["conceptuales" if self.bank.kind(bad.code) == "conceptual" else "procedimentales"] += 1
             self.item_failed, self.last_code, self.level = True, bad.code, 1
+            self._turno_eval["correcto"] = False
+            self._turno_eval["codigo"] = bad.code
             return self._emit(f"{summary} Empecemos por lo que falla. "
                               + self._help_text(Outcome(False, bad.code, bad.detail)), 1, hint=True)
         self.level = 0
+        self._turno_eval["correcto"] = True
+        self._turno_eval["codigo"] = "OK"
         return self._emit(f"{summary} {self._step_prompt(self.step)}", 0)
 
     # ------------------------------------------------------------- transiciones
     def _on_correct(self, step: Step, out: Outcome) -> str:
+        self._turno_eval["correcto"] = True
+        self._turno_eval["codigo"] = "OK"
         if self.item_failed and self.level <= 1:
             self.c["autonoma"] = True
         if out.item is not None and out.item not in step.done:
@@ -767,6 +840,8 @@ class Session:
 
     def _on_wrong(self, step: Step, out: Outcome) -> str:
         code = out.code
+        self._turno_eval["correcto"] = False
+        self._turno_eval["codigo"] = code
         self.item_failed = True
         self.last_code, self.last_detail = code, dict(out.detail)
         self.c["errores"].append(code)
@@ -846,6 +921,20 @@ class Session:
             self.c["pistas"][min(level, 5)] += 1
         self.transcript.append({"t": time.time(), "rol": "tutor", "texto": msg,
                                 "paso": self.step.id, "nivel": level, "codigo": self.last_code})
+        if self._turno_eval:
+            self.ultimo_turno = {
+                "paso_id": self._turno_eval["paso_id"],
+                "paso_tipo": self._turno_eval["paso_tipo"],
+                "correcto": self._turno_eval["correcto"],
+                "codigo": self._turno_eval["codigo"],
+                "nivel_antes": self._turno_eval["nivel_antes"],
+                "nivel_despues": level,
+                "pista": bool(hint),
+                "intentos_paso": self._turno_eval["intentos_paso"],
+                "mensaje_base": msg,
+                "permite_ecuaciones": level >= 4,
+                "terminado": self.finished,
+            }
         return msg
 
     # ============================================================== chequeos
@@ -1625,4 +1714,16 @@ def build_session(circuit: Circuit, method: str, mode: str, bank: ErrorBank | No
         raise CircuitError(f"No pude preparar el problema: {exc}") from exc
 
 
-__all__ = ["Session", "build_session", "METHODS", "MODES", "Diagnosis", "fill"]
+def reconstruir(circuito: Circuit, metodo: str, modo: str = "aprender",
+                entradas: list[str] | None = None,
+                banco: ErrorBank | None = None) -> Session:
+    """Crea la sesión, llama start() y reproduce cada entrada recibida."""
+    s = Session(circuito, metodo, mode=modo, bank=banco)
+    s.start()
+    for entrada in (entradas or []):
+        s.reply(entrada)
+    return s
+
+
+__all__ = ["Session", "build_session", "reconstruir", "CONFIANZA_KINDS",
+           "METHODS", "MODES", "Diagnosis", "fill"]
