@@ -337,6 +337,14 @@ CASOS_RUTA_RAPIDA = [
     ("¿2 A?", "motor"),
     ("¿qué me pides?", "ambiguo"),
     ("no entiendo", "motor"),
+    # La ley de Ohm no es una unidad; ánimo y saludos sin signo de interrogación
+    ("¿es la ley de Ohm?", "ambiguo"),
+    ("son 4 ohms", "motor"),
+    ("ohms", "motor"),
+    ("estoy muy cansado ya", "ambiguo"),
+    ("esto está bien difícil", "ambiguo"),
+    ("jajaja qué buena explicación", "ambiguo"),
+    ("buenos días", "ambiguo"),
 ]
 
 

@@ -51,13 +51,16 @@ CONFIANZA_KINDS = {
 
 # sólo unidades escritas como palabra: una letra suelta ("A ver…", "¿qué es la V?") no es una respuesta,
 # y una respuesta con unidad de una letra ya lleva número
-_UNIDADES_RE = re.compile(r"\b(volts?|voltios?|amperes?|amperios?|amps?|watts?|ohms?)\b|Ω", re.I)
+_UNIDADES_RE = re.compile(r"\b(volts?|voltios?|amperes?|amperios?|amps?|watts?|(?<!ley\sde\s)ohms?)\b|Ω", re.I)
 _INTERROGATIVO_RE = re.compile(
     r"^\s*¿?\s*(qu[eé]|por\s+qu[eé]|c[oó]mo|cu[aá]l(es)?|cu[aá]ndo|d[oó]nde|para\s+qu[eé])\b",
     re.I,
 )
 _EMOCION_RE = re.compile(
-    r"\b(no\s+entiendo|me\s+frustra|ya\s+me\s+cans[eé]|jaj+a*|gracias|hola)\b",
+    r"\b(no\s+entiendo|me\s+frustra|ya\s+me\s+cans[eé]|ja(ja)+|je(je)+|gracias|hola"
+    r"|dif[ií]cil|no\s+puedo|ya\s+no\s+quiero|odio|no\s+sirvo|qu[eé]\s+flojera|me\s+da\s+(sueño|flojera)"
+    r"|estoy\s+((muy|bien|super|bastante)\s+)?(hart|cansad|estresad|aburrid|perdid)[oa]s?|chale"
+    r"|buen[oa]s(\s+(d[ií]as|tardes|noches))?|adi[oó]s|hasta\s+luego|nos\s+vemos)\b",
     re.I,
 )
 
