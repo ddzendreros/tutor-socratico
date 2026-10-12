@@ -40,6 +40,8 @@ PROMPT_VOZ = (
     "pregunta (puedes reformularla); no agregues números, fórmulas, pistas ni pasos; "
     "no repitas números que dijo el alumno si no están en el mensaje base; "
     "nunca digas que algo está bien o mal si el mensaje base no lo dice, y si lo dice, dilo también; "
+    "no digas qué hizo, tiene o sabe el alumno; no expliques ni agregues datos, leyes o conceptos; "
+    "termina siempre con la pregunta del mensaje base entre signos ¿?; "
     "máximo 3 oraciones cortas, sin emojis ni listas. Responde sólo con el mensaje.\n\n"
     + "\n\n".join(f"Ejemplo {i}:\nAlumno: {a}\nMensaje base: {b}\nTutor: {t}"
                   for i, (a, b, t) in enumerate(EJEMPLOS_VOZ, 1))

@@ -39,6 +39,9 @@ def test_guard_no_cambia_el_veredicto_del_motor():
     assert not guard("Está mal. ¿De qué elementos sale el término de I1?", pista, [], [], False, [])[0]
     assert guard("Así es. ¿Por qué elementos pasa I2?", bien, [], [], False, [])[0]
     assert not guard("¿Por qué elementos pasa la corriente I2?", bien, [], [], False, [])[0]   # quita el acierto
+    potencia = "¿Qué relación conecta la potencia de R1 con lo que ya conoces?"
+    assert not guard("Bien, ya tienes R1. ¿Qué relación conecta la potencia de R1 con lo que ya conoces?",
+                     potencia, [], [], False, [])[0]
     polaridad = "Si sustituyes tus valores, ¿la fuente queda con la polaridad correcta?"
     assert guard("Sustituye tus valores: ¿la fuente queda con la polaridad adecuada?", polaridad, [], [], False, [])[0]
 

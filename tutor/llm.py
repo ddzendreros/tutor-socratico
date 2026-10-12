@@ -93,9 +93,9 @@ class LLM:
 
 # ================================================================== guardia
 # el veredicto lo decide el motor: la reescritura no puede agregarlo, cambiarlo ni quitarlo
-# "correcto", "exacto" o "perfecto" sólo son veredicto al abrir la frase o con "es/está"; como
-# adjetivo ("la polaridad correcta") no lo son
-_ACIERTO_RE = re.compile(r"(^|[.!¡¿,;:]\s*)(correct[oa]s?|exact[oa](mente)?|perfect[oa]|excelente)\b"
+# "correcto", "bien", "exacto" o "perfecto" sólo son veredicto al abrir la frase o con "es/está";
+# como adjetivo ("la polaridad correcta") no lo son. El motor usa "Bien." para un acierto parcial
+_ACIERTO_RE = re.compile(r"(^|[.!¡¿,;:]\s*)(correct[oa]s?|bien|exact[oa](mente)?|perfect[oa]|excelente)\b"
                          r"|\b(muy bien|bien hecho|así es|buen trabajo|acertaste|tienes razón|eso es"
                          r"|(es|est[aá]n?)\s+correct[oa]s?)\b", re.I)
 _ERROR_RE = re.compile(r"\b(incorrect[oa]s?|te equivocaste|est[aá] mal|no es correct[oa]|equivocad[oa]s?"

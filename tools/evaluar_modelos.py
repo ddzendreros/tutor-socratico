@@ -50,13 +50,13 @@ RUTA_INTENCIONES = _RAIZ / "tools" / "datos_evaluacion" / "intenciones.csv"
 RUTA_TURNOS = _RAIZ / "tools" / "datos_evaluacion" / "turnos.jsonl"
 N_MUESTRA = 15
 HILOS_MEDICION = 2
-# criterios obligatorios del plan; la licencia se revisa a mano
-RAM_MAX_MB, GUARDIA_MIN, INTENCION_MIN, MEDIANA_MAX_MS = 1300, 85, 85, 15000
+# criterios obligatorios para equipos de 8 GB; la licencia se revisa a mano
+RAM_MAX_MB, GUARDIA_MIN, INTENCION_MIN, MEDIANA_MAX_MS = 3000, 85, 85, 15000
 
 CAMPOS = [
     "modelo", "error", "cumple_obligatorios", "falla_en", "ram_pico_mb", "carga_ms", "variante_cpu",
     "redaccion_ms_mediana", "redaccion_ms_p90", "intencion_ms_mediana", "tokens_s_mediana",
-    "guardia_final_pct", "guardia_primer_intento_pct", "eco_pct", "sin_numeros_ajenos_pct",
+    "guardia_final_pct", "reformulado_pct", "guardia_primer_intento_pct", "eco_pct", "sin_numeros_ajenos_pct",
     "intencion_pct", "respuesta_reconocida_pct", "cache_redaccion_mediana", "cache_intencion_mediana",
     "peticiones_fallidas", "turnos_desfasados", "n_redacciones", "n_intenciones", "motivos_rechazo",
 ]
@@ -151,7 +151,7 @@ def evaluar_modelo(ruta_modelo: Path, ruta_servidor: Path, hilos: int, salida: P
             t = turnos[i]
             r = conv.redactar(t["base"], t["alumno"], t["ctx"])
             primero = r["intentos"][0]["texto"] if r["intentos"] else ""
-            redacciones.append({"r": r, "eco": normalizar(primero) == normalizar(t["base"]),
+            redacciones.append({"r": r, "base": t["base"], "eco": normalizar(primero) == normalizar(t["base"]),
                                 "ajenos": numeros_ajenos(primero, t["base"], t["ctx"])})
             detalle.append({"tipo": "redaccion", "problema": t["problema"], "turno": t["tipo"],
                             "alumno": t["alumno"], "base": t["base"], "mostrado": r["texto"],
@@ -182,6 +182,9 @@ def evaluar_modelo(ruta_modelo: Path, ruta_servidor: Path, hilos: int, salida: P
         "tokens_s_mediana": round(mediana([p["predicted_per_second"] for p in peticiones
                                            if p.get("predicted_per_second")]), 1),
         "guardia_final_pct": pct(sum(d["r"]["fuente"] == "modelo" for d in redacciones), n_red),
+        # lo que de verdad aporta el modelo: se mostró su texto y no es el mensaje base
+        "reformulado_pct": pct(sum(d["r"]["fuente"] == "modelo" and normalizar(d["r"]["texto"]) != normalizar(d["base"])
+                                   for d in redacciones), n_red),
         "guardia_primer_intento_pct": pct(sum(bool(d["r"]["intentos"]) and d["r"]["intentos"][0]["ok"]
                                               for d in redacciones), n_red),
         "eco_pct": pct(sum(d["eco"] for d in redacciones), n_red),
