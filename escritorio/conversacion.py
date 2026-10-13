@@ -122,8 +122,15 @@ PLANTILLAS_BASE = {
     "charla": "¡Con gusto! {pregunta}",
 }
 
+PROMPT_TEORIA = (
+    "Responde la duda usando SÓLO este material de clase. "
+    "2 o 3 oraciones con la notación del profesor, en texto simple, sin LaTeX ni signos de dólar. "
+    "No resuelvas el problema del alumno ni uses sus valores. "
+    "Termina regresando al paso: «{pregunta_paso}»."
+)
+
 PROMPTS_HASH = hashlib.sha256(
-    "\n".join([PROMPT_VOZ, json.dumps(mensajes_intencion(""), ensure_ascii=False),
+    "\n".join([PROMPT_VOZ, PROMPT_TEORIA, json.dumps(mensajes_intencion(""), ensure_ascii=False),
                json.dumps(SCHEMA_INTENCION, sort_keys=True),
                json.dumps(PLANTILLAS_BASE, sort_keys=True, ensure_ascii=False)]).encode("utf-8")
 ).hexdigest()[:12]
@@ -153,7 +160,19 @@ def contexto_guardia(sesion) -> dict:
 def limpiar_salida(texto: str) -> str:
     texto = _ETIQUETA_RE.sub("", texto.strip())
     texto = texto.strip().strip("«»\"“”'").strip()
-    return re.sub(r"\s+", " ", texto)
+    # fórmulas en LaTeX a texto simple: $I_{\text{neta}} = I_1 - I_2$ → I_neta = I1 - I2
+    texto = re.sub(r"\\(?:text|mathrm)\{([^}]*)\}", r"\1", texto)
+    texto = re.sub(r"_\{([^}]*)\}", r"_\1", texto)
+    texto = re.sub(r"\b([IVRP])_(\d+)\b", r"\1\2", texto)
+    texto = texto.replace("\\cdot", "·").replace("\\,", " ").replace("$", "")
+    return re.sub(r"\s+", " ", texto).strip()
+
+
+def con_pregunta_del_paso(texto: str, pregunta_paso: str) -> str:
+    """Una respuesta de teoría debe regresar al paso: si no termina con su pregunta, se le agrega."""
+    if not pregunta_paso or texto.rstrip().endswith("?") or pregunta_paso in texto:
+        return texto
+    return f"{texto.rstrip()} {pregunta_paso}"
 
 
 def _seisgramas(texto: str) -> set[tuple[str, ...]]:
@@ -292,6 +311,64 @@ class Conversador:
         """Se implementa en una fase posterior."""
         pass
 
-    def responder_teoria(self, *args, **kwargs) -> None:
-        """Se implementa en una fase posterior."""
-        pass
+    def responder_teoria(self, pregunta: str, pregunta_paso: str, contexto: dict | None = None) -> dict[str, Any]:
+        """Responde la duda usando las 2 mejores fichas pedagógicas de clase.
+
+        Pasa por guard() con contexto_guardia(sesion).
+        Si no hay ficha sobre el umbral, usa la plantilla predeterminada y redactar().
+        Devuelve {texto, fichas: [(id, puntaje)], encontro, fuente: modelo|ficha|plantilla,
+        guardia: {ok, motivo}, intentos, ms}; `fuente` "ficha" es el texto de la ficha tal cual.
+        """
+        from escritorio.conocimiento import buscar, UMBRAL_TEORIA
+
+        ctx = contexto or {}
+        resultados = buscar(pregunta, k=2, umbral=UMBRAL_TEORIA)
+
+        if not resultados:
+            base = (f"Esa duda no viene en el material de clase que tengo; anótala para "
+                    f"preguntarle a tu profesor. Mientras, {pregunta_paso}")
+            red = self.redactar(base, pregunta, ctx)
+            return {"texto": red["texto"], "fichas": [], "encontro": False, "fuente": red["fuente"],
+                    "guardia": red["guardia"], "intentos": red["intentos"], "ms": red["ms"]}
+
+        fichas_info = [(f.id, puntaje) for f, puntaje in resultados]
+        texto_fichas = "\n\n".join(f"[{f.titulo}]\n{f.contenido}" for f, _ in resultados)
+        resultado = {"texto": f"{resultados[0][0].contenido} {pregunta_paso}", "fichas": fichas_info,
+                     "encontro": True, "fuente": "ficha", "guardia": {"ok": True, "motivo": "sin modelo"},
+                     "intentos": [], "ms": 0}
+
+        if self.llm is None or not self.llm.enabled:
+            return resultado
+
+        prompt_sistema = PROMPT_TEORIA.format(pregunta_paso=pregunta_paso)
+        messages = [
+            {"role": "system", "content": prompt_sistema},
+            {"role": "user", "content": f"Material de clase:\n{texto_fichas}\n\nPregunta del alumno: {pregunta}"},
+        ]
+
+        motivo = ""
+        for temperatura in (0.4, 0.2):
+            out, metricas = self.llm.chat(messages, id_slot=0, seed=42, temperature=temperatura, max_tokens=300)
+            resultado["ms"] += metricas.get("ms", 0)
+            if not out:
+                motivo = "sin respuesta del modelo"
+                resultado["intentos"].append({"texto": "", "ok": False, "motivo": motivo})
+                continue
+            texto_candidato = con_pregunta_del_paso(limpiar_salida(out), pregunta_paso)
+            ok, motivo = guard(
+                texto_candidato,
+                pregunta_paso,
+                ctx.get("forbidden", []),
+                ctx.get("pending_eqs", []),
+                ctx.get("permite_ecuaciones", False),
+                ctx.get("var_names", []),
+                ctx.get("known", set()),
+                texto_fichas=texto_fichas,
+            )
+            resultado["intentos"].append({"texto": texto_candidato, "ok": ok, "motivo": "" if ok else motivo})
+            if ok:
+                resultado.update(texto=texto_candidato, fuente="modelo", guardia={"ok": True, "motivo": ""})
+                return resultado
+
+        resultado["guardia"] = {"ok": False, "motivo": motivo}
+        return resultado

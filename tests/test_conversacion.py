@@ -257,6 +257,8 @@ def test_limpiar_salida_quita_etiquetas_y_comillas():
     assert limpiar_salida('Tutor: "Checa el signo. ¿Con qué signo entra?"') == "Checa el signo. ¿Con qué signo entra?"
     assert limpiar_salida("Salida: «Bien.  ¿Y luego?»") == "Bien. ¿Y luego?"
     assert limpiar_salida("Mensaje base: ¿Qué sigue?") == "¿Qué sigue?"
+    assert limpiar_salida(r"La neta es $I_{\text{neta}} = I_1 - I_2$.") == "La neta es I_neta = I1 - I2."
+    assert limpiar_salida(r"Se cumple $P = V \cdot I$.") == "Se cumple P = V · I."
 
 
 def test_redactar_limpia_antes_de_la_guardia_y_registra_intentos():

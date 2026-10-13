@@ -119,11 +119,24 @@ def main() -> int:
                     intencion = info_int.get("intencion", "respuesta")
                 else:
                     intencion = "respuesta"
+            # en un paso de concepto la ficha contiene la respuesta: la duda se atiende como pista
+            if intencion == "pregunta_teoria" and sesion.step.kind == "concept":
+                intencion = "ayuda"
 
             if intencion == "ayuda":
                 base = sesion.reply("pista")
             elif intencion in ("pregunta_paso", "animo", "fuera_de_tema", "charla"):
                 base = plantilla_para_intencion(intencion, sesion.pregunta_actual())
+            elif intencion == "pregunta_teoria":
+                ctx = contexto_guardia(sesion)
+                ctx.update(titulo_problema=problema.title, descripcion_paso=sesion.pregunta_actual(),
+                           ultimos_intercambios=historial, ruta=ruta, intencion=intencion)
+                resp_teoria = conversador.responder_teoria(entrada, sesion.pregunta_actual(), ctx)
+                texto_tutor = resp_teoria["texto"]
+                fuente = resp_teoria["fuente"]
+                historial += [f"Alumno: {entrada}", f"Tutor: {texto_tutor}"]
+                print(f"\nTutor [{fuente}]: {texto_tutor}\n")
+                continue
             else:
                 base = sesion.reply(entrada)
 

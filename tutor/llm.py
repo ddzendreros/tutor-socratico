@@ -164,10 +164,12 @@ def ajustar_veredicto(texto: str, base: str) -> str:
 
 def guard(out: str, base: str, forbidden: list[float], pending_eqs: list,
           allow_equations: bool, var_names: list[str],
-          known: set[float] | None = None) -> tuple[bool, str]:
+          known: set[float] | None = None,
+          texto_fichas: str = "") -> tuple[bool, str]:
     """Rechaza la reescritura si filtra resultados, ecuaciones pendientes o
     si cambia la naturaleza del mensaje (p.ej. quita la pregunta o cambia el veredicto)."""
-    if len(out) > max(3 * len(base), 400):
+    limite = max(3 * len(base), len(texto_fichas), 600) if texto_fichas else max(3 * len(base), 400)
+    if len(out) > limite:
         return False, "demasiado largo"
     if "?" in base and "?" not in out:
         return False, "perdió la pregunta"
@@ -183,14 +185,16 @@ def guard(out: str, base: str, forbidden: list[float], pending_eqs: list,
         propias = _raices(_ultima_pregunta(out))
         if (propias or _raices(_ultima_pregunta(base))) and len(propias & _raices(base)) < 0.5 * len(propias or {1}):
             return False, "cambia la pregunta"
-    if not allow_equations and not set(_IGUALDAD_RE.findall(out)) <= set(_IGUALDAD_RE.findall(base)):
+    base_eqs = base + (" " + texto_fichas if texto_fichas else "")
+    if not allow_equations and not set(_IGUALDAD_RE.findall(out)) <= set(_IGUALDAD_RE.findall(base_eqs)):
         return False, "agrega una ecuación"
     conceptos = lambda t: {c.casefold().rstrip("s") for c in _CONCEPTO_RE.findall(t)}  # noqa: E731
-    if not conceptos(out) <= conceptos(base):
+    base_conceptos = base + (" " + texto_fichas if texto_fichas else "")
+    if not conceptos(out) <= conceptos(base_conceptos):
         return False, "agrega contenido técnico"
     if not _conserva_el_contenido(base, out):
         return False, "omite parte del mensaje"
-    allowed = {round(n.value, 4) for n in parse_numbers(base)} | {0, 1, 2, 3}
+    allowed = {round(n.value, 4) for n in parse_numbers(base + (" " + texto_fichas if texto_fichas else ""))} | {0, 1, 2, 3}
     allowed |= {round(float(k), 4) for k in (known or set())}
     for n in parse_numbers(out):
         if any(close(abs(n.value), abs(f), 0.01) for f in forbidden):

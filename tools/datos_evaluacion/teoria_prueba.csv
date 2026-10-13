@@ -1,0 +1,39 @@
+pregunta,concepto
+"oye, ¿qué dice la ley de Ohm?",ley_de_ohm
+¿cómo saco la potencia de una resistencia?,potencia_electrica
+¿qué es la ley de Watt?,potencia_electrica
+¿la segunda ley de Kirchhoff qué dice?,lvk
+¿qué pasa con las corrientes en un nodo?,lck
+¿por qué tiene que salir igual PE y PC?,balance_potencia
+¿cómo distingo una malla de un lazo?,lazo_vs_malla
+¿qué significa FMR?,sentido_corriente_fmr_cmr
+¿todas las corrientes de malla deben ir para el mismo lado?,sentido_corriente_fmr_cmr
+¿cuándo una malla es real?,malla_real
+¿qué hago si una fuente de corriente está en una sola malla?,malla_fantasma
+¿por qué se forma una supermalla?,supermalla
+¿de dónde sale la ecuación auxiliar?,ecuacion_auxiliar
+¿qué es la ecuación real de la supermalla?,ecuacion_real
+¿por qué en la resistencia compartida se restan las corrientes?,rama_compartida_corriente_neta
+"¿qué va en la tabla de V, I y P?",tabla_vip
+¿qué nodo conviene tomar como referencia?,nodo_referencia
+¿qué es la tierra del circuito?,nodo_referencia
+¿cuándo un nodo es fantasma?,nodo_fantasma
+¿qué pasa si hay una fuente de voltaje entre dos nodos?,supernodo
+¿un nodo con fuente de corriente es real?,nodo_real
+¿qué es la conductancia?,conductancia
+¿cómo sumo resistencias en paralelo?,resistencias_paralelo
+¿en serie la corriente es la misma?,resistencias_serie
+¿qué son RT1 y RT2?,reduccion_resistencias
+¿qué pasa con una resistencia que está en corto?,resistencia_en_corto
+¿cuándo uso delta estrella?,conversion_delta_estrella
+¿cómo funciona el divisor de voltaje?,divisor_voltaje
+¿qué hago con las otras fuentes en superposición?,superposicion
+¿cómo apago una fuente de corriente?,desactivar_fuentes_corriente
+¿qué es el equivalente de Thévenin?,teorema_thevenin
+¿si me sale una corriente negativa está mal?,significado_corriente_negativa
+¿qué es un capacitor?,
+¿cómo funciona un transistor?,
+¿qué es la impedancia?,
+¿qué es una fuente dependiente?,
+¿qué es un nodo esencial?,
+¿qué es la corriente alterna?,

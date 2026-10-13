@@ -5,7 +5,7 @@ pregunta,concepto,tema
 ¿Qué establece la ley de corrientes de Kirchhoff?,lck,kirchhoff
 ¿Cómo se calcula la resistencia equivalente de dos resistencias en serie?,resistencias_serie,serie_paralelo
 ¿Cómo se calcula la resistencia equivalente de dos resistencias en paralelo?,resistencias_paralelo,serie_paralelo
-¿Qué es un nodo esencial?,nodo_esencial,nodos
+¿Qué es un nodo esencial?,,nodos
 ¿Qué es una rama en un circuito eléctrico?,rama,conceptos_basicos
 ¿Qué es una malla en un circuito eléctrico?,malla,mallas
 ¿Cuál es la diferencia entre un lazo y una malla?,lazo_vs_malla,mallas
@@ -16,8 +16,8 @@ pregunta,concepto,tema
 ¿Qué es un nodo de referencia o tierra?,nodo_referencia,nodos
 ¿Cómo funciona un divisor de voltaje?,divisor_voltaje,divisores
 ¿Cuál es la fórmula del divisor de corriente?,divisor_corriente,divisores
-¿Qué es una fuente dependiente de voltaje?,fuente_dependiente,fuentes
-¿Qué es una fuente dependiente de corriente?,fuente_dependiente,fuentes
+¿Qué es una fuente dependiente de voltaje?,,fuentes
+¿Qué es una fuente dependiente de corriente?,,fuentes
 ¿Qué establece el teorema de superposición?,superposicion,teoremas
 ¿Cómo se desactivan las fuentes de voltaje independientes en superposición?,desactivar_fuentes_voltaje,teoremas
 ¿Cómo se desactivan las fuentes de corriente independientes en superposición?,desactivar_fuentes_corriente,teoremas
