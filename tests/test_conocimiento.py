@@ -121,6 +121,15 @@ def test_coincidir_solo_en_el_texto_no_basta_para_responder():
     assert buscar("¿qué es una fuente dependiente?", k=2, umbral=UMBRAL_TEORIA) == []
 
 
+def test_la_ficha_con_el_titulo_preguntado_responde_aunque_puntue_poco():
+    # "malla" y "nodo" salen en muchas fichas: su puntaje queda bajo el umbral
+    for pregunta, ficha in [("¿qué es una malla?", "malla"), ("¿Qué es un nodo?", "nodo"),
+                            ("¿qué es un supernodo?", "supernodo")]:
+        res = buscar(pregunta, k=2, umbral=UMBRAL_TEORIA)
+        assert res and res[0][0].id == ficha, (pregunta, res)
+    assert buscar("¿qué es una fuente?", k=2, umbral=UMBRAL_TEORIA) == []
+
+
 def test_umbral_teoria_filtra_fuera_de_tema():
     preguntas_ajenas = [
         "¿te gusta el fútbol?",

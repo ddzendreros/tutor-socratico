@@ -31,10 +31,11 @@ class LLM:
 
     def chat(self, messages: list[dict], *, json_schema: dict | None = None,
              id_slot: int = 0, seed: int = 0, temperature: float = 0.4,
-             max_tokens: int = 400) -> tuple[str | None, dict]:
+             max_tokens: int = 400, timeout: float | None = None) -> tuple[str | None, dict]:
         """Llama a /v1/chat/completions y devuelve (texto, métricas).
 
         Métricas: ms, tokens_prompt, tokens_salida, tokens_cache.
+        `timeout` (s) reemplaza al del cliente para esta petición.
         """
         if not self.enabled:
             return None, {}
@@ -60,6 +61,7 @@ class LLM:
                 f"{self.base_url}/v1/chat/completions",
                 json=body,
                 headers=headers,
+                timeout=httpx.USE_CLIENT_DEFAULT if timeout is None else timeout,
             )
             r.raise_for_status()
             data = r.json()

@@ -10,6 +10,8 @@ import json
 import re
 from typing import Any
 
+from escritorio.config import (MAX_TOKENS_INTENCION, MAX_TOKENS_VOZ, TEMPERATURA_INTENCION, TEMPERATURA_VOZ,
+                               TEMPERATURA_VOZ_REINTENTO, TIMEOUT_INTENCION, TIMEOUT_VOZ)
 from tutor.llm import LLM, ajustar_veredicto, guard
 
 # (alumno, mensaje base del motor, cómo lo diría el tutor); mensajes reales del motor
@@ -203,8 +205,9 @@ class Conversador:
             json_schema=SCHEMA_INTENCION,
             id_slot=1,
             seed=0,
-            temperature=0.0,
-            max_tokens=100,
+            temperature=TEMPERATURA_INTENCION,
+            max_tokens=MAX_TOKENS_INTENCION,
+            timeout=TIMEOUT_INTENCION,
         )
 
         if not out:
@@ -252,9 +255,9 @@ class Conversador:
         ]
 
         motivo = ""
-        for n, temperatura in enumerate((0.4, 0.2)):
+        for n, temperatura in enumerate((TEMPERATURA_VOZ, TEMPERATURA_VOZ_REINTENTO)):
             out, metricas = self.llm.chat(messages, id_slot=0, seed=42, temperature=temperatura,
-                                          max_tokens=300)
+                                          max_tokens=MAX_TOKENS_VOZ, timeout=TIMEOUT_VOZ)
             resultado["ms"] += metricas.get("ms", 0)
             for clave in ("tokens_prompt", "tokens_salida", "tokens_cache"):
                 resultado[clave] = metricas.get(clave, 0)
@@ -347,8 +350,9 @@ class Conversador:
         ]
 
         motivo = ""
-        for temperatura in (0.4, 0.2):
-            out, metricas = self.llm.chat(messages, id_slot=0, seed=42, temperature=temperatura, max_tokens=300)
+        for temperatura in (TEMPERATURA_VOZ, TEMPERATURA_VOZ_REINTENTO):
+            out, metricas = self.llm.chat(messages, id_slot=0, seed=42, temperature=temperatura,
+                                          max_tokens=MAX_TOKENS_VOZ, timeout=TIMEOUT_VOZ)
             resultado["ms"] += metricas.get("ms", 0)
             if not out:
                 motivo = "sin respuesta del modelo"

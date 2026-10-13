@@ -13,40 +13,52 @@
       <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M2 16h6l2-5 3 10 3-10 3 10 3-10 2 5h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></svg>
       <span>Tutor socrático <em>· Circuitos eléctricos</em></span>
     </div>
-    <div id="status" class="status" role="status" aria-live="polite"></div>
+    <div class="topbar-right">
+      <div id="status" class="status" role="status" aria-live="polite">Cargando…</div>
+      <div id="usuario-box" class="usuario-box" style="display: none;">
+        <span id="codigo-badge" class="codigo-badge"></span>
+        <button id="btn-exportar" type="button" class="ghost small" style="display: none;">Exportar mis datos</button>
+        <button id="btn-salir" type="button" class="ghost small">Cerrar sesión</button>
+      </div>
+    </div>
   </header>
 
   <main>
-    <!-- 1. Identificación -->
-    <section id="inicio" class="screen active">
+    <!-- 1. Pantalla Código -->
+    <section id="pantalla-codigo" class="screen active">
       <div class="intro">
         <h1>Resuelve tú el circuito.<br><span>Yo te hago las preguntas.</span></h1>
-        <p>El tutor no te da la respuesta: te pregunta, revisa cada paso y te da pistas graduadas
+        <p>El tutor no te da la respuesta: te guía paso a paso, revisa tus cálculos y te ofrece pistas
           sólo cuando las necesitas.</p>
       </div>
-      <form id="form-inicio" class="card form" autocomplete="off">
-        <label>Boleta
-          <input id="boleta" name="boleta" inputmode="numeric" required>
+      <form id="form-codigo" class="card form" autocomplete="off">
+        <label for="codigo">Código de acceso
+          <input id="codigo" name="codigo" placeholder="Ej. TS-XXXX-C" spellcheck="false" required autofocus>
         </label>
-        <label>Grupo
-          <select id="grupo"></select>
-          <input id="grupo-texto" placeholder="Ej. 1CM1">
-        </label>
-        <label class="check">
-          <input id="consent" type="checkbox" required>
-          <span>Acepto que mis respuestas se usen, sin mi nombre, para investigación educativa.
-            Mi boleta se convierte en un código irreversible y no se guarda.</span>
-        </label>
-        <button class="primary" type="submit">Continuar</button>
+        <p class="small muted">Introduce el código asignado por tu profesor.</p>
+        <button class="primary" type="submit" id="btn-entrar">Entrar</button>
       </form>
     </section>
 
-    <!-- 2. Elegir problema -->
-    <section id="elegir" class="screen">
+    <!-- 2. Pantalla Consentimiento -->
+    <section id="pantalla-consentimiento" class="screen">
+      <div class="card consentimiento-card">
+        <!-- el texto viene de textos/consentimiento.md -->
+        <div class="consentimiento-texto" id="consentimiento-texto"></div>
+        <div class="row consent-acciones">
+          <button type="button" id="btn-consent-acepto" class="primary">Acepto participar</button>
+          <button type="button" id="btn-consent-rechazo" class="ghost">Usar el tutor sin participar</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. Pantalla Elegir problema -->
+    <section id="pantalla-problemas" class="screen">
       <div class="modes" role="radiogroup" aria-label="Modo de trabajo" id="modes"></div>
       <p id="mode-help" class="muted small"></p>
       <div id="lista"></div>
-      <details class="card propio">
+
+      <details class="card propio" id="detalles-propio">
         <summary>Capturar otro problema</summary>
         <p class="small muted">Una fila por elemento: <code>R1 a b 10</code> (resistencia en Ω),
           <code>V1 a 0 12</code> (fuente de voltaje, + en el primer nodo),
@@ -67,8 +79,8 @@
       </details>
     </section>
 
-    <!-- 3. Sesión -->
-    <section id="sesion" class="screen">
+    <!-- 4. Pantalla Sesión -->
+    <section id="pantalla-sesion" class="screen">
       <div class="problem card" id="problema"></div>
       <div id="chat" class="chat" aria-live="polite"></div>
       <form id="composer" class="composer">
@@ -81,6 +93,20 @@
       </form>
     </section>
   </main>
+
+  <!-- Modal Visor de Dibujo -->
+  <div id="modal-dibujo" class="modal" role="dialog" aria-modal="true" aria-label="Dibujo del circuito" style="display: none;">
+    <div class="modal-overlay" id="modal-overlay"></div>
+    <div class="modal-contenido card">
+      <header class="modal-header">
+        <h3 id="modal-titulo">Diagrama del circuito</h3>
+        <button type="button" id="modal-cerrar" class="modal-close" aria-label="Cerrar">&times;</button>
+      </header>
+      <div class="modal-body">
+        <img id="modal-img" src="" alt="Diagrama ampliado">
+      </div>
+    </div>
+  </div>
 
   <script src="app.js"></script>
 </body>

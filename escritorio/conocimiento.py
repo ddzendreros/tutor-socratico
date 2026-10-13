@@ -11,6 +11,8 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
+from escritorio.config import UMBRAL_TEORIA  # noqa: F401  (se importa desde este módulo)
+
 
 _PALABRAS_VACIAS = {
     "a", "al", "algo", "algun", "alguna", "algunas", "alguno", "algunos", "ante",
@@ -57,8 +59,6 @@ _PALABRAS_VACIAS = {
     "pasa", "funciona", "sirve", "hago", "hace", "saco", "significa", "quiere", "decir", "oye", "dice",
     "explica", "explicas", "puedo", "debo",
 }
-
-UMBRAL_TEORIA = 3.0
 
 
 def normalizar(texto: str) -> list[str]:
@@ -154,6 +154,7 @@ class BuscadorBM25:
         self.doc_freqs: dict[str, int] = defaultdict(int)
         # términos del título y las claves: dicen de qué trata la ficha
         self.terminos_clave: list[set[str]] = []
+        self.terminos_titulo: list[set[str]] = []
 
         for f in fichas:
             # Ponderación de campos: título (x3), palabras clave (x2) y contenido (x1)
@@ -162,6 +163,7 @@ class BuscadorBM25:
             toks_contenido = normalizar(f.contenido)
             doc_toks = toks_titulo + toks_claves + toks_contenido
             self.terminos_clave.append(set(toks_titulo) | set(toks_claves))
+            self.terminos_titulo.append(set(toks_titulo))
             self.doc_lengths.append(len(doc_toks))
             tf = Counter(doc_toks)
             self.doc_term_freqs.append(tf)
@@ -181,13 +183,16 @@ class BuscadorBM25:
         Con `umbral`, sólo cuentan las fichas que lo alcanzan y que comparten con la pregunta
         algún término de su título o sus claves: coincidir sólo en el texto ("¿cómo funciona un
         transistor?" con una ficha que dice "funciona") no basta para responder con ella.
+        La ficha cuyo título es justo lo que se pregunta ("¿qué es una malla?" y "Malla") va primero
+        y no necesita el umbral: un término que aparece en muchas fichas puntúa poco.
         """
         q_tokens = normalizar(pregunta)
         if not q_tokens or self.N == 0:
             return []
 
-        scores: list[tuple[Ficha, float]] = []
+        scores: list[tuple[Ficha, float, bool]] = []
         for i, ficha in enumerate(self.fichas):
+            exacta = set(q_tokens) == self.terminos_titulo[i]
             if umbral is not None and not set(q_tokens) & self.terminos_clave[i]:
                 continue
             tf = self.doc_term_freqs[i]
@@ -199,11 +204,11 @@ class BuscadorBM25:
                     idf_val = self.idf.get(qt, 0.0)
                     denom = f_val + self.k1 * (1.0 - self.b + self.b * (dl / self.avgdl))
                     score += idf_val * (f_val * (self.k1 + 1.0)) / denom
-            if score > 0.0 and (umbral is None or score >= umbral):
-                scores.append((ficha, round(score, 3)))
+            if score > 0.0 and (umbral is None or score >= umbral or exacta):
+                scores.append((ficha, round(score, 3), exacta))
 
-        scores.sort(key=lambda x: x[1], reverse=True)
-        return scores[:k]
+        scores.sort(key=lambda x: (x[2], x[1]), reverse=True)
+        return [(ficha, score) for ficha, score, _ in scores[:k]]
 
 
 _BUSCADOR_GLOBAL: BuscadorBM25 | None = None

@@ -1,0 +1,22 @@
+# Aviso de participación en un estudio — versión 1.0 (borrador)
+
+- **El estudio:** forma parte de un estudio de investigación educativa sobre cómo aprenden los estudiantes de Circuitos Eléctricos con un tutor de inteligencia artificial. [Nombre del proyecto, responsables e institución por completar.]
+- **El tutor:** es una IA que corre en tu computadora. Te guía con preguntas y pistas, y puede equivocarse al redactar.
+- **Qué se registra, sólo dentro de la ventana del tutor:**
+  - tus respuestas y la conversación;
+  - cómo escribes (teclas, borrados, pausas, texto pegado);
+  - cuánto tiempo pasas en cada paso;
+  - cuándo sales de la ventana del tutor y cuándo regresas;
+  - las pistas que pides;
+  - qué tan seguro te sientes de tus respuestas;
+  - datos técnicos de tu computadora (sistema, memoria, procesador).
+- **Qué no se registra:** lo que haces fuera del tutor (otros programas o páginas), tu pantalla, tu cámara, tu micrófono, tu nombre ni tu boleta.
+- **Cómo se te identifica:** con el código que te dio tu profesor. Sólo el profesor sabe a quién corresponde.
+- **Dónde quedan tus datos:**
+  - Se guardan cifrados en tu computadora.
+  - Tú los exportas y los subes a una carpeta del equipo de investigación.
+  - Sólo el equipo de investigación puede abrirlos.
+  - Se analizarán con herramientas estadísticas y de IA [CONFIRMAR: si alguna herramienta en línea recibirá las conversaciones].
+  - Los resultados se publicarán de forma agregada, sin identificar a nadie.
+- **Tu participación es voluntaria:** puedes usar el tutor sin participar, y también retirarte después; pide a tu profesor que borre los datos de tu código. Participar o no [CONFIRMAR: no afecta tu calificación].
+- **Contacto:** [por completar].

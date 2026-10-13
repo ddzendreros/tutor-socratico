@@ -1,0 +1,25 @@
+"""Constantes ajustables de la aplicación de escritorio."""
+from __future__ import annotations
+
+# el modelo que se busca junto al ejecutable o en vendor/modelos
+MODELO_ARCHIVO = "gemma-4-E2B_q4_0-it.gguf"
+
+INACTIVIDAD_MIN = 30
+# tipos de paso en los que se pregunta la confianza; deben estar en CONFIANZA_KINDS del motor
+PASOS_CON_CONFIANZA = ("equations", "values", "targets", "table", "reduce", "concept", "submit")
+
+TEMPERATURA_VOZ = 0.4
+TEMPERATURA_VOZ_REINTENTO = 0.2
+TEMPERATURA_INTENCION = 0.0
+MAX_TOKENS_VOZ = 300
+MAX_TOKENS_INTENCION = 100
+# puntaje BM25 mínimo de una ficha para contestar con ella una duda de teoría
+UMBRAL_TEORIA = 3.0
+
+# segundos
+TIMEOUT_VOZ = 60.0
+TIMEOUT_INTENCION = 20.0
+INTERVALO_LATIDO = 15.0
+TIMEOUT_LATIDO_SERVIDOR = 300.0
+
+VELOCIDAD_ESCRITURA_CPS = 60
