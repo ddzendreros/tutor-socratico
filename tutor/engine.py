@@ -655,8 +655,8 @@ class Session:
                     4: "Identifica el primer par que puedas combinar y calcula su equivalente. ¿Cuál es?",
                     5: "Resistencias del circuito: " + ", ".join(e.label for e in self.circuit.by_kind("R"))
                        + ". Reduce de adentro hacia afuera hasta quedarte con una sola. ¿Qué obtienes?"}[level]
-        q = {"I": "corriente", "V": "voltaje", "P": "potencia"}[t.quantity]
-        return {1: f"¿Qué relación conecta la {q} de {t.element} con lo que ya conoces?",
+        q = {"I": "la corriente", "V": "el voltaje", "P": "la potencia"}[t.quantity]
+        return {1: f"¿Qué relación conecta {q} de {t.element} con lo que ya conoces?",
                 2: "Recuerda: V = R·I para resistencias y P = V·I para cualquier elemento.",
                 3: f"Obtén primero el voltaje y la corriente de {t.element}; después aplica la relación.",
                 4: f"Para {t.element}: ¿cuál es su corriente? Con ella, aplica V = R·I o P = V·I.",
