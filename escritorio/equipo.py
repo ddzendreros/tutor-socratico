@@ -151,9 +151,22 @@ def huella_conocida(ruta: Path | None) -> str | None:
         return _huellas.get(clave)
 
 
+def construccion(raiz: Path | None = None) -> str | None:
+    """Commit con el que se construyó el programa instalado (de version.json); None al correr desde el código."""
+    try:
+        doc = json.loads(((raiz or RAIZ) / "version.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    commit = doc.get("commit")
+    if not commit:
+        return None
+    return commit[:12] + ("+cambios" if doc.get("cambios_sin_commit") else "")
+
+
 def versiones(ruta_modelo: Path | None) -> dict:
     return {
         "app": __version__,
+        "construccion": construccion(),
         "banco_hash": banco_hash(),
         "prompts_hash": PROMPTS_HASH,
         "modelo": ruta_modelo.name if ruta_modelo else None,

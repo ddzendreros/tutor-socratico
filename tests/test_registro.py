@@ -410,7 +410,8 @@ def test_equipo_y_huella_del_modelo(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     assert equipo.versiones(modelo)["modelo_sha256"] is None  # entrar nunca lee el modelo
     huella = hashlib.sha256(modelo.read_bytes()).hexdigest()[:12]
     assert equipo.huella_modelo(modelo) == huella
-    assert equipo.versiones(modelo) == {"app": equipo.__version__, "banco_hash": equipo.banco_hash(),
+    assert equipo.versiones(modelo) == {"app": equipo.__version__, "construccion": None,
+                                        "banco_hash": equipo.banco_hash(),
                                         "prompts_hash": equipo.PROMPTS_HASH, "modelo": "modelo.gguf",
                                         "modelo_sha256": huella}
     assert huella in (tmp_path / "app" / "huellas.json").read_text("utf-8")

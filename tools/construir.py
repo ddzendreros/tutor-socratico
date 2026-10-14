@@ -1,5 +1,8 @@
 """Script de construcción de la distribución empaquetada e instalador de Tutor Socrático.
 
+Antes de empezar comprueba que el código esté en un commit, sin cambios pendientes: el commit
+queda en version.json y en los datos de cada sesión, para saber con qué código se generaron.
+
 Pasos:
   1. Verificación de la llave pública y ejecución de la suite de pruebas.
   2. Empaquetado con PyInstaller (escritorio.spec).
@@ -108,10 +111,47 @@ def buscar_iscc() -> Path:
     )
 
 
+def estado_git(raiz: Path) -> tuple[str | None, list[str]]:
+    """El commit actual y los cambios sin commit (git status --porcelain); (None, []) fuera de un repositorio."""
+    try:
+        commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=str(raiz), capture_output=True,
+                                text=True, check=True).stdout.strip()
+        estado = subprocess.run(["git", "status", "--porcelain"], cwd=str(raiz), capture_output=True,
+                                text=True, check=True).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return None, []
+    return commit, [linea for linea in estado.splitlines() if linea.strip()]
+
+
+def paso_0_verificar_repositorio(permitir_cambios: bool = False) -> tuple[str | None, bool]:
+    print("\n--- Antes de construir: estado del repositorio ---")
+    commit, cambios = estado_git(RAIZ)
+    if commit is None:
+        if not permitir_cambios:
+            print("ERROR: No se pudo leer el commit con git. Construye desde el repositorio clonado.",
+                  file=sys.stderr)
+            sys.exit(1)
+        print("AVISO: Sin commit conocido (--permitir-cambios).")
+        return None, True
+    print(f"Commit: {commit}")
+    if cambios:
+        print("Cambios sin commit:")
+        for linea in cambios:
+            print(f"  {linea}")
+        if not permitir_cambios:
+            print("ERROR: Haz commit de los cambios antes de construir. Para una construcción de prueba usa\n"
+                  "--permitir-cambios (quedará marcada en version.json y en los datos).", file=sys.stderr)
+            sys.exit(1)
+        print("AVISO: Se construye con cambios sin commit (--permitir-cambios). No la repartas.")
+    return commit, bool(cambios)
+
+
 def armar_version_json(
     ruta_dist: Path,
     huella_llave: str,
     nombre_modelo: str = MODELO_ARCHIVO,
+    commit: str | None = None,
+    cambios_sin_commit: bool = True,
 ) -> dict:
     """Construye el documento de metadatos de versión y hashes."""
     ruta_modelo = ruta_dist / "modelo" / nombre_modelo
@@ -125,6 +165,8 @@ def armar_version_json(
     doc = {
         "aplicacion": "Tutor Socratico",
         "version": __version__,
+        "commit": commit,
+        "cambios_sin_commit": cambios_sin_commit,
         "fecha_construccion": datetime.datetime.now(datetime.timezone.utc).isoformat(),
         "llave_publica_huella": huella_llave,
         "modelo": {
@@ -230,10 +272,10 @@ def paso_3_copiar_llama_y_modelo() -> None:
         print(f"Modelo {MODELO_ARCHIVO} ya presente en dist/ con tamaño correcto.")
 
 
-def paso_4_escribir_version_json(huella_llave: str) -> Path:
+def paso_4_escribir_version_json(huella_llave: str, commit: str | None, cambios_sin_commit: bool) -> Path:
     print("\n--- PASO 4: Generando version.json ---")
     dist_dir = RAIZ / "dist" / "TutorSocratico"
-    doc = armar_version_json(dist_dir, huella_llave)
+    doc = armar_version_json(dist_dir, huella_llave, commit=commit, cambios_sin_commit=cambios_sin_commit)
     ruta_version = dist_dir / "version.json"
     ruta_version.write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"version.json escrito en {ruta_version}")
@@ -288,12 +330,15 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Constructor de Tutor Socrático e Instalador")
     parser.add_argument("--saltar-pruebas", action="store_true", help="Omite la ejecución de pytest")
     parser.add_argument("--sin-instalador", action="store_true", help="Omite la compilación de Inno Setup")
+    parser.add_argument("--permitir-cambios", action="store_true",
+                        help="Construcción de prueba con cambios sin commit (queda marcada; no se reparte)")
     args = parser.parse_args(argv)
 
+    commit, cambios_sin_commit = paso_0_verificar_repositorio(permitir_cambios=args.permitir_cambios)
     huella_llave = paso_1_verificar_llave_y_pruebas(saltar_pruebas=args.saltar_pruebas)
     paso_2_ejecutar_pyinstaller()
     paso_3_copiar_llama_y_modelo()
-    paso_4_escribir_version_json(huella_llave)
+    paso_4_escribir_version_json(huella_llave, commit, cambios_sin_commit)
     instalador = paso_5_compilar_instalador(sin_instalador=args.sin_instalador)
     paso_6_7_reportar(instalador)
     return 0

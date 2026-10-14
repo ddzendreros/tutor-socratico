@@ -72,6 +72,8 @@ Para ejecutar el proceso completo de verificación, empaquetado y generación de
 
 ### Pasos ejecutados por `tools.construir`:
 
+0. **Antes de empezar — Repositorio:**  
+   Lee el commit actual con `git` y se detiene si hay cambios sin commit (`git status --porcelain`; los archivos ignorados, como la llave pública, no cuentan). El commit queda en `version.json` y el programa lo registra en cada sesión (`versiones.construccion`), para saber con qué código se generó cada dato.
 1. **Paso 1 — Llave pública y pruebas:**  
    Comprueba que `escritorio/llave_publica.txt` exista (si falta, se detiene) y muestra su huella: compárala con la que imprime `tools.llaves verificar` de la llave privada. A continuación, corre la suite completa de pruebas (`pytest`).
 2. **Paso 2 — PyInstaller:**  
@@ -79,7 +81,7 @@ Para ejecutar el proceso completo de verificación, empaquetado y generación de
 3. **Paso 3 — Recursos de inferencia:**  
    Copia los 24 archivos requeridos de `vendor/llama/` (incluyendo variantes CPU de ggml) a `dist/TutorSocratico/llama/` y el modelo GGUF a `dist/TutorSocratico/modelo/`.
 4. **Paso 4 — Metadatos de versión:**  
-   Calcula los hashes SHA-256 del modelo y del servidor, y escribe `dist/TutorSocratico/version.json`.
+   Calcula los hashes SHA-256 del modelo y del servidor, y escribe `dist/TutorSocratico/version.json` con la versión, el commit, si había cambios sin commit, la huella de la llave y la fecha.
 5. **Paso 5 — Instalador Inno Setup:**  
    Localiza `ISCC.exe` y compila `instalador/tutor.iss`, pasando la versión actual mediante `/DMyAppVersion`. El modelo GGUF se empaqueta con `Flags: nocompression` para acelerar la construcción.
 6. **Paso 6 y 7 — Resumen y verificación:**  
@@ -89,6 +91,7 @@ Para ejecutar el proceso completo de verificación, empaquetado y generación de
 
 - `--saltar-pruebas`: Omite la ejecución de pytest antes de compilar (útil si ya pasaron las pruebas y se quiere ahorrar tiempo).
 - `--sin-instalador`: Genera la carpeta `dist/TutorSocratico` sin compilar el `.exe` final de Inno Setup.
+- `--permitir-cambios`: Construye aunque haya cambios sin commit. Es sólo para pruebas: `version.json` lo marca y los datos registran el commit con `+cambios`. Un instalador así no se reparte.
 
 La versión sale de `escritorio/__init__.py` (`__version__`) y llega a Inno Setup con `/DMyAppVersion`; si se compila `instalador/tutor.iss` sin esa definición, falla con un error.
 

@@ -241,6 +241,8 @@ TABLAS: dict[str, list[tuple]] = {
         ("modo", "texto", "", "ventana o navegador."),
         ("variante_cpu", "texto", "", "Biblioteca de llama.cpp que eligió el procesador."),
         ("app", "texto", "", "Versión del programa (la última registrada)."),
+        ("construccion", "texto", "", "Commit con el que se construyó el programa (el último registrado); "
+                                      "termina en +cambios si tenía cambios sin commit."),
         ("modelo", "texto", "", "Archivo del modelo (el último registrado)."),
         ("modelo_sha256", "texto", "", "SHA-256 corto del modelo (el último registrado)."),
         ("hilos", "entero", "", "Hilos de llama-server."),
@@ -706,7 +708,8 @@ def _filas_equipos(eventos: list[dict]) -> list[dict]:
                                           "disco_libre_gb", "webview2", "modo", "variante_cpu")},
             "pantalla_ancho": pantalla.get("ancho"), "pantalla_alto": pantalla.get("alto"),
             "pantalla_escala": pantalla.get("escala"),
-            "app": ultimo("versiones", "app"), "modelo": ultimo("versiones", "modelo"),
+            "app": ultimo("versiones", "app"), "construccion": ultimo("versiones", "construccion"),
+            "modelo": ultimo("versiones", "modelo"),
             "modelo_sha256": ultimo("versiones", "modelo_sha256"),
             "hilos": ultimo_modelo("hilos"), "ctx": ultimo_modelo("ctx"),
             "ms_carga_mediana": _mediana([m["ms_carga"] for m in del_modelo if "ms_carga" in m]),

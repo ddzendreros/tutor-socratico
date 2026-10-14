@@ -2,17 +2,21 @@
 from __future__ import annotations
 
 import json
+import subprocess
 from pathlib import Path
 from unittest.mock import patch
 import pytest
 
-from escritorio import __version__
+from escritorio import __version__, equipo
 from escritorio.config import MODELO_ARCHIVO
+from tools import construir
 from tools.construir import (
     ARCHIVOS_LLAMA,
     armar_version_json,
     buscar_iscc,
+    estado_git,
     formato_tamano,
+    paso_0_verificar_repositorio,
     paso_1_verificar_llave_y_pruebas,
     sha256_archivo,
 )
@@ -105,3 +109,69 @@ def test_paso_1_falta_llave(tmp_path, monkeypatch):
     with pytest.raises(SystemExit) as exc:
         paso_1_verificar_llave_y_pruebas(saltar_pruebas=True)
     assert exc.value.code == 1
+
+
+# ------------------------------------------------------------------ commit de la construcción
+
+def _git(repo: Path, *args: str) -> str:
+    return subprocess.run(["git", "-c", "user.name=prueba", "-c", "user.email=prueba@ejemplo.org", *args],
+                          cwd=repo, capture_output=True, text=True, check=True).stdout.strip()
+
+
+@pytest.fixture
+def repo(tmp_path):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    (repo / ".gitignore").write_text("ignorado.txt\n", encoding="utf-8")
+    (repo / "a.txt").write_text("uno", encoding="utf-8")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-q", "-m", "inicial")
+    return repo
+
+
+def test_estado_git(repo, tmp_path):
+    commit = _git(repo, "rev-parse", "HEAD")
+    assert estado_git(repo) == (commit, [])
+    (repo / "ignorado.txt").write_text("llave", encoding="utf-8")
+    assert estado_git(repo) == (commit, [])
+    (repo / "a.txt").write_text("dos", encoding="utf-8")
+    (repo / "nuevo.txt").write_text("x", encoding="utf-8")
+    assert sorted(estado_git(repo)[1]) == [" M a.txt", "?? nuevo.txt"]
+    fuera = tmp_path / "fuera"
+    fuera.mkdir()
+    assert estado_git(fuera) == (None, [])
+
+
+def test_no_construye_con_cambios_sin_commit(repo, monkeypatch, capsys):
+    monkeypatch.setattr(construir, "RAIZ", repo)
+    commit = _git(repo, "rev-parse", "HEAD")
+    assert paso_0_verificar_repositorio() == (commit, False)
+
+    (repo / "a.txt").write_text("dos", encoding="utf-8")
+    with pytest.raises(SystemExit) as exc:
+        paso_0_verificar_repositorio()
+    assert exc.value.code == 1 and "a.txt" in capsys.readouterr().out
+    assert paso_0_verificar_repositorio(permitir_cambios=True) == (commit, True)
+
+
+def test_el_commit_viaja_en_version_json_y_en_los_datos(tmp_path):
+    dist_dir = tmp_path / "dist"
+    (dist_dir / "modelo").mkdir(parents=True)
+    (dist_dir / "llama").mkdir()
+    (dist_dir / "modelo" / MODELO_ARCHIVO).write_bytes(b"m")
+    (dist_dir / "llama" / "llama-server.exe").write_bytes(b"s")
+    commit = "c982fd9" + "0" * 33
+
+    doc = armar_version_json(dist_dir, "abc", commit=commit, cambios_sin_commit=False)
+    assert (doc["commit"], doc["cambios_sin_commit"]) == (commit, False)
+    (dist_dir / "version.json").write_text(json.dumps(doc), encoding="utf-8")
+    assert equipo.construccion(dist_dir) == commit[:12]
+
+    doc = armar_version_json(dist_dir, "abc", commit=commit, cambios_sin_commit=True)
+    (dist_dir / "version.json").write_text(json.dumps(doc), encoding="utf-8")
+    assert equipo.construccion(dist_dir) == commit[:12] + "+cambios"
+
+    assert equipo.construccion(tmp_path) is None
+    (tmp_path / "version.json").write_text("{dañado", encoding="utf-8")
+    assert equipo.construccion(tmp_path) is None

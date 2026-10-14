@@ -56,7 +56,9 @@ Al entrar con el código (si ya había aceptado) o al aceptar el aviso.
   `pantalla` (`ancho`, `alto`, `escala`, `ancho_ventana`, `alto_ventana`, en píxeles CSS),
   `webview2` (versión, o `null` si no está), `modo` (`ventana` o `navegador`) y `variante_cpu` (la
   biblioteca de llama.cpp que eligió el procesador, p. ej. `haswell`; `null` si el modelo no ha cargado).
-- `versiones`: `app`, `banco_hash` (SHA-256 corto de los problemas y el banco de errores),
+- `versiones`: `app`, `construccion` (los primeros 12 caracteres del commit con el que se construyó el
+  instalador, seguidos de `+cambios` si tenía cambios sin commit; `null` si el programa corre desde el
+  código), `banco_hash` (SHA-256 corto de los problemas y el banco de errores),
   `prompts_hash` (SHA-256 corto de los prompts), `modelo` (archivo) y `modelo_sha256` (corto; `null` la
   primera vez, mientras se calcula).
 - `modelo`: lo mismo que `modelo_estado`.
