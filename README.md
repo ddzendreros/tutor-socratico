@@ -81,6 +81,16 @@ dentro de su ventana: la conversación, cómo escribe cada mensaje, la confianza
 decisiones del motor y del modelo, y los datos técnicos del equipo. Quien no acepta usa el tutor igual,
 sin que se registre nada. El esquema completo está en [`docs/DATOS.md`](docs/DATOS.md).
 
+Los eventos se cifran desde que se escriben, con una llave pública que viaja con el programa; sólo quien
+tiene la llave privada puede leerlos. Con «Exportar mis datos», el alumno genera un `.zip` en
+`Documentos\Tutor socratico\Exportaciones` (cada exportación incluye las anteriores) y lo sube a la carpeta
+que le indique su profesor. Para el equipo de investigación:
+
+- `python -m tools.llaves generar --salida <carpeta fuera del repositorio>` crea el par de llaves, y
+  `python -m tools.llaves verificar <llave_privada.tsk>` comprueba la contraseña.
+- `python -m tools.abrir_paquetes --llave <llave_privada.tsk> --entrada <carpeta con .zip> --salida <carpeta>`
+  revisa la integridad de los paquetes y escribe las tablas (CSV, JSONL) y su diccionario de datos.
+
 ## Instalación
 
 > Pendiente.

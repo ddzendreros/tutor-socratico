@@ -6,11 +6,22 @@ Sólo se registra a quien aceptó el aviso de consentimiento. Quien no acepta us
 se escribe ningún evento suyo. Se registra únicamente lo que ocurre dentro de la ventana del tutor: nada de
 otros programas o páginas, ni la pantalla, la cámara o el micrófono.
 
-Cada alumno tiene su archivo `datos/<código>/eventos.jsonl`, con un evento por línea, dentro de
-`%LOCALAPPDATA%\TutorSocratico`. Todo el texto libre pasa por `tutor.privacidad.scrub()`, que cambia correos,
-teléfonos y números de 10 dígitos (boletas) por `[correo]`, `[teléfono]` y `[número]`. Los números
-pegados a un punto, una coma u otro dígito, o seguidos de una unidad, se conservan, porque son valores del
-circuito.
+Todo vive en `%LOCALAPPDATA%\TutorSocratico\datos`:
+
+| Archivo | Contenido |
+|---|---|
+| `instalacion.json` | En claro: `instalacion` (identificador del equipo), `sal` y `creado`. |
+| `<código>/eventos.tsd` | Los eventos del alumno, **cifrados**. Formato TSD1: el encabezado `TSD1` y, por cada lote, su longitud (4 bytes, little-endian) y el lote sellado con la llave pública del equipo de investigación (compresión y `SealedBox`). El programa sólo tiene la llave pública: puede escribir, no leer. |
+| `<código>/eventos.idx` | En claro, sólo conteos: por arranque, el último `seq` y el número de lotes escritos. Sirve para que la exportación declare qué debería traer el archivo. |
+| `<código>/estado.bin` | El estado del alumno (consentimiento, intentos en curso, cola de anotaciones), **cifrado** con una llave derivada de su código y la sal de la instalación. |
+
+Cada llamada a guardar eventos es un lote (de hasta 50 eventos), escrito de una vez; un lote que quedó
+a medias por un cierre abrupto se corta al arrancar de nuevo. Sin la llave pública del estudio el programa no
+registra nada: nunca escribe eventos en claro.
+
+Todo el texto libre pasa por `tutor.privacidad.scrub()`, que cambia correos, teléfonos y números de 10
+dígitos (boletas) por `[correo]`, `[teléfono]` y `[número]`. Los números pegados a un punto, una coma u
+otro dígito, o seguidos de una unidad, se conservan, porque son valores del circuito.
 
 ## Sobre
 
@@ -139,9 +150,50 @@ eventos después del turno, o en otra sesión.
 |---|---|
 | `ventana` | `estado`: `oculta`, `visible`, `desenfocada` o `enfocada`. En la ventana del programa, `desenfocada`/`enfocada` se disparan al cambiar de aplicación y `oculta`/`visible` al minimizar. |
 | `inactividad` | `estado`: `inicio` (tras 60 s sin mouse ni teclado) o `fin`; `ms_sin_actividad` desde la última actividad. |
-| `clic` | `control`: `pista`, `elementos_circuito`, `modo` (con `modo`), `problema` (con `problema`), `cambiar_problema`, `exportar` o `salir`. |
+| `clic` | `control`: `pista`, `elementos_circuito`, `modo` (con `modo`), `problema` (con `problema`), `cambiar_problema`, `exportar`, `abrir_carpeta` o `salir`. |
 | `copiar` / `cortar` / `pegar` | `origen` (`tutor`, `alumno`, `enunciado`, `entrada` u `otro`), `caracteres` y `texto` (hasta 500). |
 | `chat_desplazamiento` | `posicion` de la página de la sesión (problema arriba, chat abajo): 0 arriba a 1 abajo. Sólo los que hace el alumno (no los de un mensaje nuevo ni los de cambiar el tamaño), como mucho uno cada 2 s. |
 | `dibujo` | `accion`: `abrir` o `cerrar`; al cerrar, `ms_abierto`. |
 | `pantalla` | `ancho`, `alto` y `escala`, cuando cambian durante la sesión. Los del inicio van en `sesion_iniciada`. |
 | `tamano_ventana` | `ancho` y `alto` de la ventana, cuando cambian. |
+
+## Eventos del programa — exportación
+
+### `exportacion`
+
+Se registra cuando el alumno pulsa «Exportar mis datos» y el archivo se genera con éxito. Se escribe
+**después** de generar el archivo, así que queda en la exportación siguiente y no en la que lo produjo.
+
+- `archivo`: nombre del .zip generado, sin carpeta (la ruta lleva el nombre de usuario de Windows y no
+  se guarda).
+- `lotes`: lotes sellados que trae ese .zip en `eventos.tsd`.
+- `bytes`: tamaño del .zip.
+- `seq_hasta`: el último `seq` del alumno en este arranque antes de la exportación, es decir, el último
+  evento que ya estaba en disco al exportar.
+
+## Exportación y lector
+
+El botón «Exportar mis datos» escribe `Documentos\Tutor socratico\Exportaciones\<CÓDIGO>_<AAAAMMDD-HHMMSS>.zip`
+con cuatro archivos:
+
+- `LEEME.txt`: en claro, explica qué es y que se sube a la carpeta del profesor.
+- `paquete.json`: en claro, `formato` (`tutor-paquete-1`) y `huella_llave` (SHA-256 corto de la llave
+  pública con la que se cifró).
+- `manifiesto.tsd`: sellado. Trae el código, la instalación, las versiones del programa y del modelo, la hora
+  de exportación, el número de lotes, los bytes incompletos al final del archivo, los rangos de `seq` por
+  arranque y el SHA-256 de `eventos.tsd`.
+- `eventos.tsd`: copia completa del archivo del alumno. Por eso cada exportación incluye las anteriores y
+  basta con subir la más reciente.
+
+`python -m tools.abrir_paquetes` abre los .zip con la llave privada y deja en la carpeta de salida:
+`eventos.jsonl` y `eventos.csv` (todos los eventos, sin duplicados entre exportaciones y equipos),
+`sesiones_uso.csv`, `intentos.csv`, `turnos.csv`, `teclas.csv`, `anotaciones.csv`, `equipos.csv`,
+`cuestionarios.csv`, `integridad.csv`, `diccionario.csv` y `LEEME.md`. Las tablas van en UTF-8 con BOM,
+separadas por comas. `diccionario.csv` define cada columna (tipo, unidad y descripción).
+En los CSV, un texto que empieza con `=`, `+`, `-`, `@`, tabulador o retorno de carro (y no es un número)
+lleva un apóstrofo al inicio para que Excel no lo ejecute como fórmula; `eventos.jsonl` guarda el texto original.
+
+`integridad.csv` trae una fila `paquete` por cada .zip y una fila por cada problema: formato, llave,
+manifiesto, SHA-256 que no coincide, número de lotes distinto, lote ilegible, bytes sobrantes, código
+distinto, eventos en conflicto, huecos de `seq` y eventos que faltan al final. El lector termina bien aunque
+haya problemas: los reporta, no los corrige.

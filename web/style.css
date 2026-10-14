@@ -193,12 +193,16 @@ code { font-family: var(--mono); font-size: 0.88em; background: var(--accent-sof
 .modal-overlay { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.65); backdrop-filter: blur(2px); }
 .modal-contenido {
   position: relative; z-index: 1; max-width: 92vw; max-height: 90vh;
-  display: flex; flex-direction: column; background: #fff; padding: 14px 18px; border-radius: var(--radius);
+  display: flex; flex-direction: column; background: #fff; color: #111; padding: 14px 18px;
+  border-radius: var(--radius);
 }
 .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; color: #111; }
 .modal-header h3 { margin: 0; font-size: 1.05rem; }
 .modal-close { background: none; border: 0; font-size: 1.8rem; cursor: pointer; color: #555; line-height: 1; }
 .modal-body { overflow: auto; text-align: center; }
+.modal-contenido button.ghost { color: #111; border-color: #999; }
+.modal-body .row { justify-content: center; margin-top: 12px; }
+.exportar-ruta { word-break: break-all; font-family: ui-monospace, Consolas, monospace; font-size: 0.85rem; }
 .modal-body img { display: block; max-width: 100%; max-height: 75vh; height: auto; margin: 0 auto; object-fit: contain; }
 
 @media (max-width: 560px) {

@@ -377,6 +377,10 @@ function cerrarModalDibujo() {
   $("#modal-dibujo").style.display = "none";
 }
 
+function cerrarModalExportar() {
+  $("#modal-exportar").style.display = "none";
+}
+
 function renderProblemCard(p) {
   const card = $("#problema");
   card.innerHTML = `
@@ -640,19 +644,39 @@ function initSession() {
   });
 
   $("#btn-exportar").addEventListener("click", async () => {
+    const boton = $("#btn-exportar");
     tele.clic("exportar");
+    boton.disabled = true;
     try {
-      await api("/api/exportar", "POST", {});
-    } catch (e) {
-      alert(e.message);
+      const res = await api("/api/exportar", "POST", {});
+      $("#exportar-ruta").textContent = res.archivo;
+      $("#modal-exportar").style.display = "flex";
+    } catch (err) {
+      alert(err.message);
+    } finally {
+      boton.disabled = false;
     }
   });
+
+  $("#btn-abrir-carpeta").addEventListener("click", async () => {
+    tele.clic("abrir_carpeta");
+    try {
+      await api("/api/abrir_carpeta", "POST", {});
+    } catch (err) {
+      alert(err.message);
+    }
+  });
+  $("#btn-exportar-cerrar").addEventListener("click", cerrarModalExportar);
+  $("#modal-exportar-overlay").addEventListener("click", cerrarModalExportar);
 
   // Modal
   $("#modal-cerrar").addEventListener("click", cerrarModalDibujo);
   $("#modal-overlay").addEventListener("click", cerrarModalDibujo);
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") cerrarModalDibujo();
+    if (e.key === "Escape") {
+      cerrarModalDibujo();
+      cerrarModalExportar();
+    }
   });
 }
 

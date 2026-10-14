@@ -65,6 +65,15 @@ def obtener_carpeta_datos(carpeta_personalizada: str | Path | None = None) -> Pa
     return obtener_carpeta_app() / "datos"
 
 
+def obtener_carpeta_exportaciones() -> Path:
+    return obtener_carpeta_documentos() / "Tutor socratico" / "Exportaciones"
+
+
+def ruta_llave_publica(base: Path | None = None) -> Path:
+    """La llave pública del equipo de investigación, que viaja con el programa."""
+    return (base or RAIZ) / "escritorio" / "llave_publica.txt"
+
+
 def buscar_llama(base: Path | None = None) -> Path:
     """Localiza el ejecutable de llama-server."""
     raiz = base or RAIZ

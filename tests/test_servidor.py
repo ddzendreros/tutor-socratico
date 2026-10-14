@@ -10,8 +10,9 @@ import psutil
 import pytest
 
 from escritorio import __version__
-from escritorio.alumnos import generar
+from escritorio.alumnos import generar, normalizar
 from escritorio.api import ApiTutor
+from escritorio.cifrado import caja_estado
 from escritorio.config import MODELO_ARCHIVO, PASOS_CON_CONFIANZA
 from escritorio.conversacion import Conversador
 from escritorio.rutas import buscar_modelo
@@ -131,8 +132,9 @@ def _turno(client: httpx.Client, texto: str, confianza: int | None = 3) -> dict:
 
 
 def _estado(servidor_prueba, codigo: str) -> dict:
-    ruta = servidor_prueba["carpeta_datos"] / codigo.replace("-", "") / "estado.json"
-    return json.loads(ruta.read_text(encoding="utf-8"))
+    ruta = servidor_prueba["carpeta_datos"] / normalizar(codigo) / "estado.bin"
+    caja = caja_estado(normalizar(codigo), servidor_prueba["api"].registro.sal)
+    return json.loads(caja.decrypt(ruta.read_bytes()).decode("utf-8"))
 
 
 def test_403_sin_token_y_acceso_con_token(servidor_prueba):
@@ -334,7 +336,7 @@ def test_peticiones_invalidas(servidor_prueba, cliente):
     assert cliente.post("/api/responder", content=b"[1, 2]",
                         headers={"Content-Type": "application/json"}).status_code == 400
     assert cliente.post("/api/consentimiento", json={"acepta": "false"}).json()["consentimiento"] is False
-    assert cliente.post("/api/exportar", json={}).status_code == 501
+    assert cliente.post("/api/exportar", json={}).status_code == 409
 
     def falla():
         raise RuntimeError("falla de prueba")

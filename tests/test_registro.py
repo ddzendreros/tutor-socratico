@@ -13,8 +13,9 @@ import pytest
 from escritorio import equipo
 from escritorio.alumnos import formatear, generar, normalizar
 from escritorio.api import ApiTutor
+from escritorio.cifrado import caja_estado, generar_llaves, guardar_llave_publica
 from escritorio.conversacion import Conversador
-from escritorio.registro import ESQUEMA_VERSION
+from escritorio.registro import ESQUEMA_VERSION, leer_eventos
 from tests.test_servidor import ENTRADAS_MALLAS, MALLAS, OHM
 from tutor.llm import LLM
 from tutor.privacidad import scrub
@@ -61,7 +62,13 @@ class ModeloFalso(httpx.BaseTransport):
 
 def _api(tmp_path: Path, transporte: httpx.BaseTransport | None = None) -> ApiTutor:
     llm = LLM(base_url="http://modelo-falso", transport=transporte or ModeloFalso())
-    return ApiTutor(carpeta_datos=tmp_path / "datos", conversador=Conversador(llm=llm))
+    privada, publica = generar_llaves()
+    guardar_llave_publica(publica, tmp_path / "llave_publica.txt")
+    api = ApiTutor(carpeta_datos=tmp_path / "datos", conversador=Conversador(llm=llm),
+                   llave_publica=tmp_path / "llave_publica.txt", carpeta_exportaciones=tmp_path / "exportaciones")
+    # sólo las pruebas guardan la privada, para leer lo que el programa no puede leer
+    api.privada_prueba = privada
+    return api
 
 
 def _entrar(api: ApiTutor, acepta: bool | None = True, codigo: str | None = None) -> str:
@@ -81,7 +88,8 @@ def _responder(api: ApiTutor, texto: str, confianza: int | None = 3, composicion
 
 
 def _eventos(api: ApiTutor, codigo: str) -> list[dict]:
-    return api.registro.almacen.leer(normalizar(codigo))
+    ruta = api.registro.almacen.ruta_eventos(normalizar(codigo))
+    return leer_eventos(ruta.read_bytes(), api.privada_prueba)
 
 
 def _de_tipo(eventos: list[dict], tipo: str) -> list[dict]:
@@ -114,10 +122,11 @@ def test_quien_no_acepta_no_deja_registro(tmp_path: Path):
     api.post_eventos({"eventos": [{"tipo": "clic", "datos": {"control": "salir"}}]})
     api.post_salir({"motivo": "boton"})
 
-    assert list((tmp_path / "datos").rglob("eventos.jsonl")) == []
-    assert sorted(p.name for p in (tmp_path / "datos" / normalizar(codigo)).iterdir()) == ["estado.json"]
-    assert json.loads((tmp_path / "datos" / normalizar(codigo) / "estado.json").read_text("utf-8"))[
-        "cola_anotaciones"] == []
+    carpeta = tmp_path / "datos" / normalizar(codigo)
+    assert list((tmp_path / "datos").rglob("eventos.*")) == []
+    assert sorted(p.name for p in carpeta.iterdir()) == ["estado.bin"]
+    caja = caja_estado(normalizar(codigo), api.registro.sal)
+    assert json.loads(caja.decrypt((carpeta / "estado.bin").read_bytes()))["cola_anotaciones"] == []
 
 
 def test_un_problema_completo_deja_el_registro_esperado(tmp_path: Path):

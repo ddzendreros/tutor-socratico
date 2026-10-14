@@ -7,11 +7,14 @@ import logging
 import math
 import os
 import re
+import sys
 import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
+
+from nacl.exceptions import CryptoError
 
 from tutor.circuit import CircuitError
 from tutor.engine import DIRECT_RE, HELP_RE, MODES, Session, reconstruir
@@ -23,8 +26,10 @@ from escritorio.config import (ANOTACION_REPOSO, INACTIVIDAD_MIN, INTERVALO_LATI
                                PASOS_CON_CONFIANZA, VELOCIDAD_ESCRITURA_CPS)
 from escritorio.conversacion import Conversador, contexto_guardia, plantilla_para_intencion
 from escritorio.modelo import ServidorModelo
+from escritorio.cifrado import caja_estado, leer_llave_publica
+from escritorio.exportar import SinDatos, exportar
 from escritorio.registro import Registro
-from escritorio.rutas import RAIZ, obtener_carpeta_datos
+from escritorio.rutas import RAIZ, obtener_carpeta_datos, obtener_carpeta_exportaciones, ruta_llave_publica
 
 logger = logging.getLogger("tutor_socratico.api")
 
@@ -120,13 +125,29 @@ class ApiTutor:
         servidor_modelo: ServidorModelo | None = None,
         conversador: Conversador | None = None,
         banco: dict | None = None,
+        llave_publica: Path | None = None,
+        carpeta_exportaciones: Path | None = None,
     ):
         self.carpeta_datos = carpeta_datos
         self.servidor_modelo = servidor_modelo
         self.conversador = conversador or Conversador(llm=None)
         self._sin_modelo = Conversador(llm=None)
         self.banco = banco if banco is not None else {p.id: p for p in load_bank(RAIZ / "problemas")}
-        self.registro = Registro(carpeta_datos)
+        ruta_publica = Path(llave_publica) if llave_publica else ruta_llave_publica()
+        publica = None
+        if ruta_publica.is_file():
+            try:
+                publica = leer_llave_publica(ruta_publica)
+            except (ValueError, TypeError, OSError) as e:
+                logger.error("la llave pública del estudio no se pudo leer (%s); no se registrará nada", e)
+        else:
+            logger.error("no está la llave pública del estudio; no se registrará nada")
+        self.publica = publica
+        self.registro = Registro(carpeta_datos, publica)
+        self.carpeta_exportaciones = Path(carpeta_exportaciones) if carpeta_exportaciones \
+            else obtener_carpeta_exportaciones()
+        # derivada una vez por sesión de alumno (argon2id tarda unas decenas de ms)
+        self._caja = None
         # "ventana" o "navegador"; lo fija quien abre la interfaz
         self.modo_ventana = "ventana"
 
@@ -266,22 +287,28 @@ class ApiTutor:
 
     # ------------------------------------------------------------- Almacenamiento
     def _ruta_estado(self, codigo_norm: str) -> Path:
-        return obtener_carpeta_datos(self.carpeta_datos) / codigo_norm / "estado.json"
+        return obtener_carpeta_datos(self.carpeta_datos) / codigo_norm / "estado.bin"
 
     def _cargar_estado(self, codigo_norm: str) -> dict | None:
         ruta = self._ruta_estado(codigo_norm)
-        if not ruta.exists():
+        # versión anterior: el estado iba en claro en estado.json; se lee y el primer guardado lo borra
+        ruta_vieja = ruta.with_name("estado.json")
+        origen = ruta if ruta.exists() else ruta_vieja
+        if not origen.exists():
             return None
         try:
-            estado = json.loads(ruta.read_text(encoding="utf-8"))
+            if origen is ruta:
+                estado = json.loads(self._caja.decrypt(ruta.read_bytes()).decode("utf-8"))
+            else:
+                estado = json.loads(ruta_vieja.read_text(encoding="utf-8"))
             if not isinstance(estado, dict):
                 raise ValueError("no es un objeto")
-        except (OSError, ValueError) as e:
+        except (CryptoError, ValueError, OSError) as e:
             # se aparta en vez de sobrescribirlo, por si se puede recuperar
-            apartado = ruta.with_name(f"estado-ilegible-{int(time.time())}.json")
+            apartado = origen.with_name(f"estado-ilegible-{int(time.time())}{origen.suffix}")
             logger.error("Estado ilegible de %s (%s); se aparta como %s", codigo_norm, e, apartado.name)
             try:
-                os.replace(ruta, apartado)
+                os.replace(origen, apartado)
             except OSError:
                 pass
             return None
@@ -298,11 +325,15 @@ class ApiTutor:
         ruta_final.parent.mkdir(parents=True, exist_ok=True)
         ruta_tmp = ruta_final.with_suffix(".tmp")
         try:
-            with open(ruta_tmp, "w", encoding="utf-8") as f:
-                json.dump(self.estado_alumno, f, ensure_ascii=False, indent=2)
+            ruta_tmp.write_bytes(self._caja.encrypt(json.dumps(self.estado_alumno, ensure_ascii=False).encode("utf-8")))
             os.replace(ruta_tmp, ruta_final)
         except OSError as e:
             logger.error("Error guardando estado de alumno %s: %s", self.codigo_activo, e)
+            return
+        try:
+            ruta_final.with_name("estado.json").unlink(missing_ok=True)
+        except OSError as e:
+            logger.error("No se pudo borrar el estado.json anterior de %s: %s", self.codigo_activo, e)
 
     def _intento(self) -> dict:
         return self.estado_alumno["intentos_en_curso"][self.clave_intento_activa]
@@ -362,6 +393,7 @@ class ApiTutor:
         if self.codigo_activo:
             self.post_salir({"motivo": "cambio"})
         codigo_norm = normalizar(codigo_raw)
+        self._caja = caja_estado(codigo_norm, self.registro.sal)
         estado = self._cargar_estado(codigo_norm)
         if estado is None:
             estado = {"consentimiento": None, "intentos_en_curso": {}, "terminados": [], "cola_anotaciones": []}
@@ -402,6 +434,7 @@ class ApiTutor:
         self._guardar_estado()
         self.codigo_activo = None
         self.estado_alumno = None
+        self._caja = None
         self.t0_sesion = None
         self.pantalla = None
         self._modelo_registrado = None
@@ -626,10 +659,34 @@ class ApiTutor:
         return 200, {"ok": True, "registrados": len(lote)}
 
     def post_exportar(self, datos: dict) -> tuple[int, dict]:
-        return 501, {"error": "La exportación todavía no está disponible."}
+        if not self.tiene_consentimiento():
+            return 409, {"error": "Sólo quien aceptó participar tiene datos para exportar."}
+        if not self.registro.activo:
+            return 409, {"error": "Este equipo no tiene la llave del estudio; avisa a tu profesor."}
+        codigo = self.codigo_activo
+        sm = self.servidor_modelo
+        try:
+            with self.registro.escritura:
+                resultado = exportar(obtener_carpeta_datos(self.carpeta_datos), codigo, self.registro.instalacion,
+                                     self.publica, equipo.versiones(getattr(sm, "ruta_modelo", None)),
+                                     self.carpeta_exportaciones)
+        except SinDatos:
+            return 409, {"error": "Todavía no hay datos que exportar."}
+        except OSError as e:
+            logger.error("No se pudo exportar los datos de %s: %s", codigo, e)
+            return 500, {"error": "No se pudo guardar el archivo de exportación. Revisa que haya espacio en el disco."}
+        ruta = resultado["ruta"]
+        # fuera del candado (no es reentrante): este evento queda en la exportación siguiente
+        self._registrar("exportacion", {"archivo": ruta.name, "lotes": resultado["lotes"],
+                                        "bytes": resultado["bytes"], "seq_hasta": self.registro.ultimo_seq(codigo)})
+        return 200, {"ok": True, "archivo": str(ruta), "carpeta": str(ruta.parent)}
 
     def post_abrir_carpeta(self, datos: dict) -> tuple[int, dict]:
-        return 501, {"error": "La exportación todavía no está disponible."}
+        if sys.platform != "win32":
+            return 501, {"error": "Abrir la carpeta sólo está disponible en Windows."}
+        self.carpeta_exportaciones.mkdir(parents=True, exist_ok=True)
+        os.startfile(str(self.carpeta_exportaciones))
+        return 200, {"ok": True}
 
     def _contexto(self, historial: list[str] | None = None, ruta: str = "", intencion: str = "") -> dict:
         """Contexto de la redacción; se calcula después de reply() para que la guardia vea el paso nuevo."""
