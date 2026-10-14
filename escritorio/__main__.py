@@ -13,7 +13,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--sin-modelo", action="store_true", help="Ejecuta únicamente con motor y plantillas base")
     parser.add_argument("--datos", type=str, default=None, help="Carpeta personalizada para datos de alumnos")
     parser.add_argument("--puerto", type=int, default=0, help="Puerto TCP para el servidor local (0 para automático)")
+    parser.add_argument("--autodiagnostico", action="store_true",
+                        help="Sin ventana: prueba el motor y el modelo, escribe autodiagnostico.txt y sale")
     args = parser.parse_args(argv)
+
+    if args.autodiagnostico:
+        from escritorio.autodiagnostico import ejecutar_autodiagnostico
+        return ejecutar_autodiagnostico()
 
     return arrancar_aplicacion(
         forzar_navegador=args.navegador,

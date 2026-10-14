@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guía de Instalación y Uso — Tutor Socrático</title>
+<style>
+  :root {
+    --color-primary: #1976D2;
+    --color-primary-dark: #0D47A1;
+    --color-bg: #F8F9FA;
+    --color-surface: #FFFFFF;
+    --color-text: #212121;
+    --color-muted: #616161;
+    --color-border: #E0E0E0;
+    --color-accent: #E3F2FD;
+  }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background-color: var(--color-bg);
+    color: var(--color-text);
+    margin: 0;
+    padding: 24px;
+    line-height: 1.6;
+  }
+  .container {
+    max-width: 800px;
+    margin: 0 auto;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: 8px;
+    padding: 32px 40px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+  }
+  h1 {
+    color: var(--color-primary-dark);
+    font-size: 1.8rem;
+    margin-top: 0;
+    border-bottom: 2px solid var(--color-primary);
+    padding-bottom: 12px;
+  }
+  h2 {
+    color: var(--color-primary);
+    font-size: 1.3rem;
+    margin-top: 28px;
+    margin-bottom: 12px;
+  }
+  p, li {
+    font-size: 1rem;
+    color: var(--color-text);
+  }
+  ul, ol {
+    padding-left: 24px;
+  }
+  li {
+    margin-bottom: 8px;
+  }
+  code {
+    background: #EEEEEE;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-family: Consolas, monospace;
+    font-size: 0.95em;
+  }
+  .alert-box {
+    background-color: var(--color-accent);
+    border-left: 4px solid var(--color-primary);
+    padding: 14px 18px;
+    margin: 16px 0;
+    border-radius: 0 4px 4px 0;
+  }
+  .alert-box strong {
+    color: var(--color-primary-dark);
+  }
+  hr {
+    border: none;
+    border-top: 1px solid var(--color-border);
+    margin: 28px 0;
+  }
+</style>
+</head>
+<body>
+<div class="container">
+<h1>Guía de instalación y uso del Tutor Socrático</h1>
+<p>El Tutor Socrático es un programa para practicar problemas de circuitos eléctricos. Corre en tu computadora y no necesita internet para usarse.</p>
+<h2>1. Descarga del instalador</h2>
+<ol>
+  <li>Entra al enlace de Google Drive que te dio tu profesor.
+</li><li>Descarga el archivo <code>TutorSocratico-Instalador-1.0.0.exe</code>.
+</li><li>Guárdalo en tu carpeta de Descargas o en el Escritorio.
+</li></ol>
+<h2>2. Instalación en Windows</h2>
+<ol>
+  <li>Haz doble clic en <code>TutorSocratico-Instalador-1.0.0.exe</code>.
+</li><li><strong>Aviso de SmartScreen.</strong> El instalador no tiene firma digital, así que Windows puede mostrar el mensaje <em>«Windows protegió su PC»</em>:
+<ul>
+<li>haz clic en <strong>Más información</strong>;
+</li><li>haz clic en <strong>Ejecutar de todas formas</strong>.
+</li></ul>
+</li><li>No se piden permisos de administrador: el programa se instala sólo para tu usuario, en <code>%LOCALAPPDATA%\Programs\Tutor Socratico</code>.
+</li><li>Sigue el asistente. Ofrece crear un acceso directo en el Escritorio; el del Menú Inicio se crea siempre.
+</li><li>Al terminar, el asistente te deja abrir el programa en ese momento.
+</li></ol>
+<h2>3. Entrar con tu código</h2>
+<ol>
+  <li>Al abrir el programa aparece una pantalla con el campo <strong>Código de acceso</strong> y el botón <strong>Entrar</strong>.
+</li><li>Escribe el código que te dio tu profesor (tiene la forma <code>TS-XXXX-C</code>, por ejemplo <code>TS-4B8K-3</code>) y haz clic en <strong>Entrar</strong>.
+</li><li>La primera vez que entras en esa computadora aparece el <strong>Aviso de participación en un estudio</strong>. Léelo y elige una de dos opciones:
+<ul>
+<li><strong>Acepto participar:</strong> el tutor registra lo que haces dentro de su ventana, como explica el aviso.
+</li><li><strong>Usar el tutor sin participar:</strong> el tutor funciona igual, pero no se registra nada.
+</li></ul>
+</li></ol>
+<p>En la parte de arriba de la ventana se ve tu código y el estado del tutor. Mientras diga <em>«Preparando al tutor…»</em> el modelo de lenguaje está cargando; cuando diga <em>«Tutor listo»</em> ya puedes conversar con él. Si dice <em>«Tutor en modo básico»</em>, el tutor sigue funcionando con mensajes más simples.</p>
+<h2>4. Uso del tutor</h2>
+<ol>
+  <li><strong>Elige un modo y un problema.</strong> En la pantalla principal están los modos <em>Aprender</em>, <em>Practicar</em>, <em>Verificar</em> y <em>Simulador</em>, con una línea que explica cada uno, y debajo los temas: Ley de Ohm, Serie y paralelo, Método de mallas y Método de nodos. Cada problema marca si está <em>En curso</em> o <em>Terminado</em> en el modo elegido.
+</li><li><strong>Cuestionarios.</strong> Si tu profesor activó alguno, aparece antes o después de ciertos problemas, una pregunta a la vez, con el botón <strong>Continuar</strong>.
+</li><li><strong>Conversa con el tutor.</strong>
+<ul>
+<li>Escribe en el cuadro de abajo y presiona <strong>Enter</strong> o el botón <strong>Enviar</strong> (con <strong>Mayús+Enter</strong> pasas a otra línea).
+</li><li>Si no sabes cómo seguir, usa el botón <strong>Pista</strong>.
+</li><li>También puedes hacerle preguntas sobre la teoría.
+</li></ul>
+</li><li><strong>Confianza.</strong> En algunos pasos, antes de revisar tu respuesta, el tutor pregunta <em>«¿qué tan seguro estás?»</em>. Elige del 1 al 5 (1 = nada, 5 = totalmente) o <strong>Prefiero no decir</strong>.
+</li><li><strong>Salir.</strong> El botón <strong>Cerrar sesión</strong> (arriba a la derecha) guarda tu avance y vuelve a la pantalla del código. Si dejas la ventana sin tocarla 30 minutos, la sesión se cierra sola. Un problema a medias se retoma donde lo dejaste.
+</li></ol>
+<h2>5. Exportar tus datos</h2>
+<p>Sólo si aceptaste participar. Hazlo cuando tu profesor lo pida.</p>
+<ol>
+  <li>En la barra de arriba, haz clic en <strong>Exportar mis datos</strong>.
+</li><li>Aparece el aviso <em>«Tus datos quedaron exportados»</em> con la ruta del archivo.
+</li><li>El archivo se llama como tu código y la fecha y hora, por ejemplo <code>TS-4B8K-3_20261014-153045.zip</code>, y queda en <code>Documentos\Tutor socratico\Exportaciones</code>.
+</li><li>El programa no abre la carpeta por su cuenta: haz clic en <strong>Abrir carpeta</strong> para verla.
+</li><li>Sube ese <code>.zip</code> a la carpeta compartida que te indicó tu profesor. No hace falta abrirlo: va cifrado y sólo el equipo de investigación puede leerlo.
+</li></ol>
+<p>Puedes exportar las veces que quieras; cada archivo trae todo lo anterior.</p>
+<h2>6. Problemas comunes</h2>
+<ul>
+<li><strong>«El tutor ya está abierto».</strong> Busca su ventana en la barra de tareas. Si no la ves, abre el Administrador de tareas (Ctrl+Mayús+Esc), termina el proceso <code>TutorSocratico.exe</code> y abre el programa de nuevo.
+</li><li><strong>Desinstalar.</strong> Ve a <em>Configuración &gt; Aplicaciones</em> o usa el desinstalador del Menú Inicio. Se conservan tus datos (en <code>%LOCALAPPDATA%\TutorSocratico\datos</code>) y las exportaciones que ya hiciste.
+</li></ul>
+</div>
+</body>
+</html>

@@ -23,3 +23,4 @@ salida/
 .venv*/
 *.tsk
 llave_privada*
+escritorio/llave_publica.txt

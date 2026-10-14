@@ -93,11 +93,18 @@ que le indique su profesor. Para el equipo de investigación:
 
 ## Instalación
 
-> Pendiente.
+El tutor se reparte como un instalador de Windows 10/11 de 64 bits que no pide permisos de
+administrador y se instala sólo para el usuario. La guía para el alumno (descarga, aviso de
+SmartScreen, entrada con el código y exportación) está en
+[`textos/instrucciones-alumno.md`](textos/instrucciones-alumno.md). Para revisar un equipo,
+`TutorSocratico.exe --autodiagnostico` prueba el motor y el modelo sin abrir la ventana y deja el
+resultado en `%LOCALAPPDATA%\TutorSocratico\autodiagnostico.txt`.
 
 ## Construcción
 
-> Pendiente.
+`python -m tools.construir` corre las pruebas, empaqueta el programa, agrega llama.cpp y el modelo, y
+genera el instalador con Inno Setup. Requisitos, llave del estudio y pasos en
+[`docs/CONSTRUIR.md`](docs/CONSTRUIR.md).
 
 ## Pruebas
 
