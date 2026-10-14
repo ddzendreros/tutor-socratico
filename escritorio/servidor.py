@@ -105,6 +105,7 @@ class ManejadorHTTP(BaseHTTPRequestHandler):
             "/api/estado": api.get_estado,
             "/api/problemas": api.get_problemas,
             "/api/consentimiento": api.get_consentimiento,
+            "/api/cuestionario/pendiente": api.get_cuestionario_pendiente,
         }
         es_api = parsed.path.startswith("/api/")
         if not self._verificar_token(parsed, estatico=not es_api):
@@ -142,6 +143,7 @@ class ManejadorHTTP(BaseHTTPRequestHandler):
             "/api/eventos": api.post_eventos,
             "/api/exportar": api.post_exportar,
             "/api/abrir_carpeta": api.post_abrir_carpeta,
+            "/api/cuestionario/respuesta": api.post_cuestionario_respuesta,
         }
         if ruta in rutas:
             self._atender_api(rutas[ruta], body)

@@ -261,7 +261,7 @@ TABLAS: dict[str, list[tuple]] = {
         ("seq", "entero", "", "Número del evento."),
         ("t", "fecha_hora", "", "Hora de la respuesta."),
         ("cuestionario", "texto", "", "Identificador del cuestionario."),
-        ("version", "texto", "", "Versión del cuestionario."),
+        ("version", "entero", "", "Versión del cuestionario."),
         ("item", "texto", "", "Pregunta."),
         ("respuesta", "texto", "", "Respuesta del alumno."),
         ("ms", "entero", "ms", "Lo que tardó en contestar."),

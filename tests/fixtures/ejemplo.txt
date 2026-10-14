@@ -1,0 +1,10 @@
+ID: ejemplo
+TITULO: Cuestionario de prueba
+VERSION: 1
+ACTIVO: si
+CUANDO: primer_ingreso
+INSTRUCCIONES: Responde con sinceridad a las siguientes preguntas de prueba.
+P1 | likert5 | ¿Qué tan seguro te sientes con la ley de Ohm? | Totalmente inseguro; Totalmente seguro
+P2 | opcion | ¿Cuál es tu método favorito? | A) Mallas; B) Nodos; C) Reducción
+P3 | abierta | Explica brevemente tu experiencia previa con circuitos.
+P4 | numero | ¿Cuántas horas semanales dedicas al curso?

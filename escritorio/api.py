@@ -27,6 +27,7 @@ from escritorio.config import (ANOTACION_REPOSO, INACTIVIDAD_MIN, INTERVALO_LATI
 from escritorio.conversacion import Conversador, contexto_guardia, plantilla_para_intencion
 from escritorio.modelo import ServidorModelo
 from escritorio.cifrado import caja_estado, leer_llave_publica
+from escritorio.cuestionarios import Cuestionario, cargar_cuestionarios, toca, validar_respuesta
 from escritorio.exportar import SinDatos, exportar
 from escritorio.registro import Registro
 from escritorio.rutas import RAIZ, obtener_carpeta_datos, obtener_carpeta_exportaciones, ruta_llave_publica
@@ -127,12 +128,15 @@ class ApiTutor:
         banco: dict | None = None,
         llave_publica: Path | None = None,
         carpeta_exportaciones: Path | None = None,
+        carpeta_cuestionarios: Path | None = None,
     ):
         self.carpeta_datos = carpeta_datos
         self.servidor_modelo = servidor_modelo
         self.conversador = conversador or Conversador(llm=None)
         self._sin_modelo = Conversador(llm=None)
         self.banco = banco if banco is not None else {p.id: p for p in load_bank(RAIZ / "problemas")}
+        self.cuestionarios = cargar_cuestionarios(carpeta_cuestionarios,
+                                                  temas={p.topic for p in self.banco.values()})
         ruta_publica = Path(llave_publica) if llave_publica else ruta_llave_publica()
         publica = None
         if ruta_publica.is_file():
@@ -316,6 +320,8 @@ class ApiTutor:
         estado.setdefault("intentos_en_curso", {})
         estado.setdefault("terminados", [])
         estado.setdefault("cola_anotaciones", [])
+        estado.setdefault("cuestionarios_respondidos", {})
+        estado.setdefault("cuestionario_en_curso", None)
         return estado
 
     def _guardar_estado(self) -> None:
@@ -396,7 +402,9 @@ class ApiTutor:
         self._caja = caja_estado(codigo_norm, self.registro.sal)
         estado = self._cargar_estado(codigo_norm)
         if estado is None:
-            estado = {"consentimiento": None, "intentos_en_curso": {}, "terminados": [], "cola_anotaciones": []}
+            estado = {"consentimiento": None, "intentos_en_curso": {}, "terminados": [], "cola_anotaciones": [],
+                      "cuestionarios_respondidos": {},
+                      "cuestionario_en_curso": None}
         self.codigo_activo = codigo_norm
         self.estado_alumno = estado
         self.t0_sesion = time.monotonic()
@@ -490,6 +498,13 @@ class ApiTutor:
             return 400, {"error": "Problema desconocido."}
         if not pid and not propio.strip():
             return 400, {"error": "Escribe el circuito de tu problema."}
+
+        # un cuestionario pendiente va antes que cualquier problema
+        if self._cuestionario_en_curso() or self._abrir_cuestionario(
+                "antes_de_tema", self.banco[pid].topic if pid else None):
+            self._soltar_intento()
+            self._guardar_estado()
+            return 409, {"error": "Antes de seguir, contesta el cuestionario.", "cuestionario_pendiente": True}
 
         if pid:
             clave = f"{pid}:{modo}"
@@ -688,6 +703,75 @@ class ApiTutor:
         os.startfile(str(self.carpeta_exportaciones))
         return 200, {"ok": True}
 
+    # ------------------------------------------------------------------ cuestionarios
+    def _cuestionario_en_curso(self) -> Cuestionario | None:
+        """El cuestionario que el alumno tiene a medias; se descarta si ya no existe o cambió."""
+        if not self.tiene_consentimiento():
+            return None
+        en_curso = self.estado_alumno.get("cuestionario_en_curso")
+        if not en_curso:
+            return None
+        c = self.cuestionarios.get(en_curso["id"])
+        if c is None or not c.activo or c.version != en_curso["version"]:
+            self.estado_alumno["cuestionario_en_curso"] = None
+            self._guardar_estado()
+            return None
+        return c
+
+    def _abrir_cuestionario(self, momento: str, tema: str | None = None) -> Cuestionario | None:
+        """Abre el primer cuestionario que toca en este momento, si no hay otro a medias."""
+        if not self.tiene_consentimiento() or self.estado_alumno.get("cuestionario_en_curso"):
+            return None
+        for c in self.cuestionarios.values():
+            if toca(c, momento, self.estado_alumno, tema):
+                self.estado_alumno["cuestionario_en_curso"] = {"id": c.id, "version": c.version, "respuestas": {}}
+                self._guardar_estado()
+                return c
+        return None
+
+    def _registrar_cuestionario(self, tipo: str, datos: dict) -> None:
+        # no pertenece a ningún intento, aunque haya uno abierto
+        if self.tiene_consentimiento():
+            self.registro.registrar(self.codigo_activo, tipo, datos)
+
+    def get_cuestionario_pendiente(self) -> tuple[int, dict]:
+        c = (self._cuestionario_en_curso() or self._abrir_cuestionario("primer_ingreso")
+             or self._abrir_cuestionario("despues_de_problemas"))
+        if c is None:
+            return 200, {"pendiente": False}
+        indice, pregunta = c.siguiente(self.estado_alumno["cuestionario_en_curso"]["respuestas"])
+        # cada vez que se entrega, la interfaz la muestra (por ejemplo, después de recargar)
+        self._registrar_cuestionario("cuestionario_mostrado",
+                                     {"cuestionario": c.id, "version": c.version, "item": pregunta.id})
+        return 200, {"pendiente": True, "cuestionario": c.id, "version": c.version, "titulo": c.titulo,
+                     "instrucciones": c.instrucciones, "indice_item": indice, "total_items": len(c.preguntas),
+                     "item": pregunta.para_mostrar()}
+
+    def post_cuestionario_respuesta(self, datos: dict) -> tuple[int, dict]:
+        c = self._cuestionario_en_curso()
+        if c is None:
+            return 409, {"error": "No hay ningún cuestionario pendiente."}
+        en_curso = self.estado_alumno["cuestionario_en_curso"]
+        _, pregunta = c.siguiente(en_curso["respuestas"])
+        # sólo se contesta la pregunta que se mostró, una vez y en orden
+        if (datos.get("cuestionario"), datos.get("version"), datos.get("item")) != (c.id, c.version, pregunta.id):
+            return 409, {"error": "Esa pregunta no es la que sigue."}
+        valida, respuesta = validar_respuesta(pregunta, datos.get("respuesta"))
+        if not valida:
+            return 400, {"error": "Revisa tu respuesta."}
+        ms = datos.get("ms")
+        ms = round(ms) if type(ms) in (int, float) and math.isfinite(ms) and ms >= 0 else None
+        self._registrar_cuestionario("cuestionario_respuesta", {"cuestionario": c.id, "version": c.version,
+                                                                "item": pregunta.id, "respuesta": respuesta,
+                                                                "ms": ms})
+        en_curso["respuestas"][pregunta.id] = True
+        completado = c.siguiente(en_curso["respuestas"]) is None
+        if completado:
+            self.estado_alumno["cuestionarios_respondidos"][c.id] = c.version
+            self.estado_alumno["cuestionario_en_curso"] = None
+        self._guardar_estado()
+        return 200, {"ok": True, "completado": completado}
+
     def _contexto(self, historial: list[str] | None = None, ruta: str = "", intencion: str = "") -> dict:
         """Contexto de la redacción; se calcula después de reply() para que la guardia vea el paso nuevo."""
         s = self.sesion_activa
@@ -764,10 +848,13 @@ class ApiTutor:
         if s.finished:
             indicadores = s.indicators()
             self._guardar_tiempo_activo()
+            tema_terminado = self.problema_activo.topic
             self._registrar("intento_terminado", {**self._datos_intento(self.problema_activo, intento["modo"]),
                                                   "segundos_activos": intento["segundos_activos"],
                                                   "indicadores": indicadores})
             self._terminar_intento()
+            if not self._abrir_cuestionario("al_terminar_tema", tema_terminado):
+                self._abrir_cuestionario("despues_de_problemas")
         else:
             self._guardar_tiempo_activo()
         self._guardar_estado()

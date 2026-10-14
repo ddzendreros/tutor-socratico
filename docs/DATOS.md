@@ -144,6 +144,26 @@ eventos después del turno, o en otra sesión.
   `fuera_de_tema`). Es `null` si el modelo no respondió bien dos veces.
 - `ms`, `tokens_prompt`, `tokens_salida` y `modelo` (archivo).
 
+### `cuestionario_mostrado`
+
+Una pregunta de un cuestionario aparece en pantalla (ver `cuestionarios/LEEME.md`). Se repite si
+vuelve a aparecer, por ejemplo después de recargar o de cerrar el programa a mitad del cuestionario.
+No pertenece a ningún intento (`intento: null`).
+
+- `cuestionario`: su `ID`.
+- `version`: su `VERSION` (entero).
+- `item`: identificador de la pregunta.
+
+### `cuestionario_respuesta`
+
+El alumno contesta esa pregunta. Cada pregunta se contesta una sola vez y en orden; una respuesta
+inválida no se registra.
+
+- `cuestionario`, `version` e `item`, como arriba.
+- `respuesta`: entero del 1 al 5 (`likert5`), texto de la opción (`opcion`), texto (`abierta`) o
+  número (`numero`). El texto pasa por el mismo filtro de datos personales que la conversación.
+- `ms`: desde que apareció la pregunta hasta que se envió la respuesta.
+
 ## Eventos de la interfaz (`origen: ui`)
 
 | tipo | datos |

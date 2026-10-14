@@ -68,7 +68,7 @@ async function api(path, method = "GET", data = null) {
   }
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
-    throw new Error(json.error || `Error ${res.status}`);
+    throw Object.assign(new Error(json.error || `Error ${res.status}`), { status: res.status });
   }
   return json;
 }
@@ -163,6 +163,163 @@ async function mostrarConsentimiento() {
   show("pantalla-consentimiento");
 }
 
+let cuestionarioActual = null;
+let cuestionarioT0Item = null;
+
+async function verificarCuestionarioPendiente() {
+  if (!state.consentimiento) return false;
+  try {
+    const res = await api("/api/cuestionario/pendiente");
+    if (res && res.pendiente) {
+      mostrarCuestionario(res);
+      return true;
+    }
+  } catch (err) {
+    console.error("Error al consultar cuestionario pendiente:", err);
+  }
+  return false;
+}
+
+function mostrarCuestionario(datos) {
+  cuestionarioActual = datos;
+  cuestionarioT0Item = performance.now();
+
+  $("#cuestionario-titulo").textContent = datos.titulo || "Cuestionario";
+  $("#cuestionario-progreso").textContent = `Pregunta ${datos.indice_item} de ${datos.total_items}`;
+
+  const instrEl = $("#cuestionario-instrucciones");
+  if (datos.instrucciones) {
+    instrEl.textContent = datos.instrucciones;
+    instrEl.style.display = "block";
+  } else {
+    instrEl.style.display = "none";
+  }
+
+  const item = datos.item;
+  $("#cuestionario-pregunta-texto").textContent = item.texto;
+
+  const campo = $("#cuestionario-campo-respuesta");
+  campo.innerHTML = "";
+
+  if (item.tipo === "likert5") {
+    const cont = document.createElement("div");
+    cont.className = "cuestionario-likert";
+    const escala = document.createElement("div");
+    escala.className = "cuestionario-likert-escala";
+    for (let i = 1; i <= 5; i++) {
+      const lbl = document.createElement("label");
+      lbl.className = "cuestionario-likert-punto";
+      lbl.innerHTML = `<input type="radio" name="respuesta_cuestionario" value="${i}" required><span>${i}</span>`;
+      escala.appendChild(lbl);
+    }
+    cont.appendChild(escala);
+    const etiq = document.createElement("div");
+    etiq.className = "cuestionario-likert-etiquetas";
+    const etiq1 = (item.etiquetas && item.etiquetas[0]) || "Totalmente en desacuerdo";
+    const etiq5 = (item.etiquetas && item.etiquetas[1]) || (item.etiquetas && item.etiquetas[item.etiquetas.length - 1]) || "Totalmente de acuerdo";
+    etiq.innerHTML = `<span>1: ${escaparHtml(etiq1)}</span><span>5: ${escaparHtml(etiq5)}</span>`;
+    cont.appendChild(etiq);
+    campo.appendChild(cont);
+  } else if (item.tipo === "opcion") {
+    const cont = document.createElement("div");
+    cont.className = "cuestionario-opciones";
+    (item.opciones || []).forEach((op, idx) => {
+      const lbl = document.createElement("label");
+      lbl.className = "cuestionario-opcion";
+      lbl.innerHTML = `<input type="radio" name="respuesta_cuestionario" value="${escaparHtml(op)}" required><span>${escaparHtml(op)}</span>`;
+      cont.appendChild(lbl);
+    });
+    campo.appendChild(cont);
+  } else if (item.tipo === "abierta") {
+    const txt = document.createElement("textarea");
+    txt.name = "respuesta_cuestionario";
+    txt.rows = 4;
+    txt.placeholder = "Escribe tu respuesta aquí…";
+    txt.required = true;
+    txt.spellcheck = false;
+    txt.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter" && !ev.shiftKey) {
+        ev.preventDefault();
+        $("#form-cuestionario").requestSubmit();
+      }
+    });
+    campo.appendChild(txt);
+  } else if (item.tipo === "numero") {
+    const num = document.createElement("input");
+    num.type = "number";
+    num.step = "any";
+    num.name = "respuesta_cuestionario";
+    num.placeholder = "Introduce un número";
+    num.required = true;
+    campo.appendChild(num);
+  }
+
+  show("pantalla-cuestionario");
+  // el foco en el primer campo permite contestar sólo con el teclado
+  const primero = campo.querySelector("input, textarea");
+  if (primero) primero.focus();
+}
+
+function initPantallaCuestionario() {
+  $("#form-cuestionario").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    if (!cuestionarioActual) return;
+
+    const ms = Math.round(performance.now() - cuestionarioT0Item);
+    const form = $("#form-cuestionario");
+    const item = cuestionarioActual.item;
+
+    let respuesta = null;
+    if (item.tipo === "likert5" || item.tipo === "opcion") {
+      const radio = form.querySelector('input[name="respuesta_cuestionario"]:checked');
+      if (!radio) return;
+      respuesta = item.tipo === "likert5" ? parseInt(radio.value, 10) : radio.value;
+    } else if (item.tipo === "abierta") {
+      const txt = form.querySelector('textarea[name="respuesta_cuestionario"]');
+      if (!txt || !txt.value.trim()) return;
+      respuesta = txt.value.trim();
+    } else if (item.tipo === "numero") {
+      const num = form.querySelector('input[name="respuesta_cuestionario"]');
+      if (!num || num.value === "") return;
+      const v = parseFloat(num.value);
+      if (isNaN(v)) return;
+      respuesta = v;
+    }
+
+    const btn = $("#btn-cuestionario-enviar");
+    btn.disabled = true;
+    try {
+      await api("/api/cuestionario/respuesta", "POST", {
+        cuestionario: cuestionarioActual.cuestionario,
+        version: cuestionarioActual.version,
+        item: item.id,
+        respuesta,
+        ms,
+      });
+
+      // Consultar siguiente pregunta o volver
+      const resSig = await api("/api/cuestionario/pendiente");
+      btn.disabled = false;
+      if (resSig && resSig.pendiente) {
+        mostrarCuestionario(resSig);
+      } else {
+        cuestionarioActual = null;
+        await cargarProblemas();
+        show("pantalla-problemas");
+      }
+    } catch (err) {
+      btn.disabled = false;
+      alert(err.message);
+      // si la pregunta ya no era la que seguía, se vuelve a pedir la que toca
+      if (err.status === 409 && !(await verificarCuestionarioPendiente())) {
+        cuestionarioActual = null;
+        await cargarProblemas();
+        show("pantalla-problemas");
+      }
+    }
+  });
+}
+
 async function entrarConEstado(codigo, consentimiento) {
   state.codigo = codigo;
   state.consentimiento = consentimiento;
@@ -170,8 +327,11 @@ async function entrarConEstado(codigo, consentimiento) {
   if (consentimiento === null || consentimiento === undefined) {
     await mostrarConsentimiento();
   } else {
-    await cargarProblemas();
-    show("pantalla-problemas");
+    const hayCuestionario = await verificarCuestionarioPendiente();
+    if (!hayCuestionario) {
+      await cargarProblemas();
+      show("pantalla-problemas");
+    }
   }
 }
 
@@ -180,6 +340,7 @@ function salirALaPantallaDeCodigo() {
   state.consentimiento = null;
   state.currentProblem = null;
   state.ocupado = false;
+  cuestionarioActual = null;
   actualizarUsuarioBox();
   show("pantalla-codigo");
 }
@@ -455,7 +616,10 @@ async function startProblem(pid, custom = "", method = "") {
     if (!state.finished) $("#entrada").focus();
   } catch (err) {
     mostrarEstadoModelo();
-    alert("Error al iniciar el problema: " + err.message);
+    const hayCuestionario = await verificarCuestionarioPendiente();
+    if (!hayCuestionario) {
+      alert("Error al iniciar el problema: " + err.message);
+    }
   }
 }
 
@@ -485,8 +649,11 @@ function showIndicators(ind) {
   again.textContent = "Resolver otro problema";
   again.style.marginTop = "10px";
   again.addEventListener("click", async () => {
-    await cargarProblemas();
-    show("pantalla-problemas");
+    const hayCuestionario = await verificarCuestionarioPendiente();
+    if (!hayCuestionario) {
+      await cargarProblemas();
+      show("pantalla-problemas");
+    }
   });
   wrap.appendChild(again);
 }
@@ -713,6 +880,7 @@ function iniciarLatidosEInactividad() {
 async function arrancar() {
   initPantallaCodigo();
   initPantallaConsentimiento();
+  initPantallaCuestionario();
   initSession();
 
   let st = null;

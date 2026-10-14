@@ -52,6 +52,26 @@
       </div>
     </section>
 
+    <!-- 2b. Pantalla Cuestionario -->
+    <section id="pantalla-cuestionario" class="screen">
+      <div class="card cuestionario-card">
+        <header class="cuestionario-header">
+          <h2 id="cuestionario-titulo">Cuestionario</h2>
+          <span id="cuestionario-progreso" class="tag">Pregunta 1 de 1</span>
+        </header>
+        <p id="cuestionario-instrucciones" class="muted small" style="display: none;"></p>
+        <div id="cuestionario-item-contenedor" class="cuestionario-item-contenedor">
+          <h3 id="cuestionario-pregunta-texto"></h3>
+          <form id="form-cuestionario" class="cuestionario-form">
+            <div id="cuestionario-campo-respuesta"></div>
+            <div class="row cuestionario-acciones">
+              <button type="submit" id="btn-cuestionario-enviar" class="primary">Continuar</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </section>
+
     <!-- 3. Pantalla Elegir problema -->
     <section id="pantalla-problemas" class="screen">
       <div class="modes" role="radiogroup" aria-label="Modo de trabajo" id="modes"></div>
