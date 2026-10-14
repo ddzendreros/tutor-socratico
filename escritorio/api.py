@@ -4,21 +4,26 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import os
 import re
 import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
 from tutor.circuit import CircuitError
-from tutor.engine import MODES, Session, reconstruir
+from tutor.engine import DIRECT_RE, HELP_RE, MODES, Session, reconstruir
+from tutor.privacidad import scrub
 from tutor.problems import load_bank, parse_problem
-from escritorio import __version__
+from escritorio import __version__, equipo
 from escritorio.alumnos import es_valido, formatear, normalizar
-from escritorio.config import INACTIVIDAD_MIN, INTERVALO_LATIDO, PASOS_CON_CONFIANZA, VELOCIDAD_ESCRITURA_CPS
+from escritorio.config import (ANOTACION_REPOSO, INACTIVIDAD_MIN, INTERVALO_LATIDO, MODELO_ARCHIVO,
+                               PASOS_CON_CONFIANZA, VELOCIDAD_ESCRITURA_CPS)
 from escritorio.conversacion import Conversador, contexto_guardia, plantilla_para_intencion
 from escritorio.modelo import ServidorModelo
+from escritorio.registro import Registro
 from escritorio.rutas import RAIZ, obtener_carpeta_datos
 
 logger = logging.getLogger("tutor_socratico.api")
@@ -32,6 +37,21 @@ TOPICS = {
 
 # intenciones que se contestan con una plantilla sin que el motor evalúe nada
 SIN_MOTOR = ("pregunta_paso", "animo", "fuera_de_tema", "charla")
+
+# eventos que puede mandar la interfaz; los demás sólo los escribe la aplicación
+EVENTOS_UI = {"ventana", "inactividad", "clic", "copiar", "cortar", "pegar", "chat_desplazamiento", "dibujo",
+              "pantalla", "tamano_ventana"}
+MOTIVOS_SALIDA = {"boton", "inactividad", "cierre", "cambio"}
+MAX_EVENTOS_COMPOSICION = 5000
+
+# respuestas abiertas que el modelo anota con la rúbrica, sólo como dato
+PASOS_ANOTADOS = {"concept": "concepto", "verify": "verificacion", "metacog": "metacognicion"}
+IDEAS_ESPERADAS = {
+    "verificacion": ("Una forma concreta de comprobar los resultados: balance de potencias (PE = PC), sustituir "
+                     "los valores en las ecuaciones originales (LVK o LCK) o medir en un simulador."),
+    "metacognicion": ("Nombra un error o una dificultad concreta, explica por qué ocurrió y propone una regla "
+                      "que pueda usar en otro circuito."),
+}
 
 
 def _describe(p) -> dict:
@@ -51,6 +71,46 @@ def _describe(p) -> dict:
     }
 
 
+def _numero(v: Any, minimo: float | None = None) -> int | None:
+    if type(v) not in (int, float) or not math.isfinite(v) or (minimo is not None and v < minimo):
+        return None
+    return round(v)
+
+
+def _composicion(c: Any, texto: str) -> dict | None:
+    """Composición del mensaje que manda la interfaz, con tipos y tamaños revisados."""
+    if not isinstance(c, dict):
+        return None
+    comp = {k: _numero(c.get(k)) for k in ("ms_desde_tutor", "ms_primera_tecla")}
+    comp.update({k: _numero(c.get(k), 0) for k in ("ms_escribiendo", "teclas", "borrados", "pegados",
+                                                     "caracteres_pegados", "pausas_2s", "foco_perdido")})
+    eventos = []
+    for ev in c.get("eventos") if isinstance(c.get("eventos"), list) else []:
+        if (isinstance(ev, list) and len(ev) == 4 and _numero(ev[0]) is not None and isinstance(ev[1], str)
+                and isinstance(ev[2], str) and _numero(ev[3]) is not None):
+            eventos.append([_numero(ev[0]), ev[1][:40], ev[2][:2000], _numero(ev[3])])
+            if len(eventos) >= MAX_EVENTOS_COMPOSICION:
+                break
+    # scrub() no reconoce un dato personal tecleado letra por letra: si el mensaje o lo tecleado
+    # lo contienen, se guardan las teclas sin su texto
+    tecleado = "".join(e[2] for e in eventos if e[1].startswith("insert"))
+    oculto = scrub(tecleado) != tecleado or scrub(texto) != texto
+    comp["eventos"] = [[dt, tipo, "", pos] for dt, tipo, _, pos in eventos] if oculto else eventos
+    comp["teclas_sin_texto"] = oculto
+    return comp
+
+
+def _datos_ui(d: dict) -> dict:
+    """Los eventos de la interfaz traen sólo valores simples."""
+    out = {}
+    for k, v in list(d.items())[:20]:
+        if isinstance(v, str):
+            out[str(k)[:40]] = v[:500]
+        elif v is None or isinstance(v, bool) or (type(v) in (int, float) and math.isfinite(v)):
+            out[str(k)[:40]] = v
+    return out
+
+
 class ApiTutor:
     """Implementa la lógica de los endpoints locales de la aplicación."""
 
@@ -66,6 +126,9 @@ class ApiTutor:
         self.conversador = conversador or Conversador(llm=None)
         self._sin_modelo = Conversador(llm=None)
         self.banco = banco if banco is not None else {p.id: p for p in load_bank(RAIZ / "problemas")}
+        self.registro = Registro(carpeta_datos)
+        # "ventana" o "navegador"; lo fija quien abre la interfaz
+        self.modo_ventana = "ventana"
 
         self.lock_estado = threading.RLock()
         self.lock_motor = threading.Lock()
@@ -77,16 +140,32 @@ class ApiTutor:
         self.problema_activo: Any = None
         self.clave_intento_activa: str | None = None
         self.t0_intento: float | None = None
-        # respuesta que espera la confianza del alumno antes de evaluarse: {texto, ruta, intencion}
+        # respuesta que espera la confianza del alumno antes de evaluarse
         self.pendiente: dict | None = None
 
+        self.pantalla: dict | None = None
+        self.t0_sesion: float | None = None
+        self.ms_precalentar: int | None = None
+        self._modelo_registrado: str | None = None
+        # la anotación sólo usa el modelo cuando el alumno no lo está usando
+        self._peticiones_alumno = 0
+        self._ultimo_uso_modelo = time.monotonic()
+
+    # --------------------------------------------------------------------- Modelo
     def conectar_modelo(self, servidor_modelo: ServidorModelo) -> None:
-        """Conecta un servidor de modelo arrancado en segundo plano."""
+        """Se llama desde el hilo que arrancó el modelo, haya cargado o no."""
         self.servidor_modelo = servidor_modelo
-        from tutor.llm import LLM
-        llm = LLM(base_url=servidor_modelo.url_base)
-        llm.configurar(base_url=servidor_modelo.url_base, llave=servidor_modelo.llave)
-        self.conversador = Conversador(llm=llm)
+        if servidor_modelo.estado == "listo":
+            from tutor.llm import LLM
+            llm = LLM(base_url=servidor_modelo.url_base)
+            llm.configurar(base_url=servidor_modelo.url_base, llave=servidor_modelo.llave)
+            conversador = Conversador(llm=llm)
+            t0 = time.perf_counter()
+            conversador.precalentar()
+            self.ms_precalentar = round((time.perf_counter() - t0) * 1000)
+            self.conversador = conversador
+        with self.lock_estado:
+            self.registrar_estado_modelo()
 
     def estado_modelo(self) -> str:
         if self.servidor_modelo is not None:
@@ -94,14 +173,96 @@ class ApiTutor:
             if self.servidor_modelo.estado == "listo" and not self.servidor_modelo.vivo:
                 logger.warning("El proceso del modelo terminó; se sigue con los mensajes base.")
                 self.servidor_modelo.estado = "error"
+                self.registrar_estado_modelo()
+            if self.servidor_modelo.estado == "listo" and self.conversador.llm is None:
+                return "cargando"  # se está precalentando
             return self.servidor_modelo.estado
         if self.conversador.llm is not None and self.conversador.llm.enabled:
             return "listo"
         return "sin_modelo"
 
+    def _datos_modelo(self) -> dict:
+        sm = self.servidor_modelo
+        return {
+            "estado": self.estado_modelo(),
+            "ms_carga": getattr(sm, "ms_carga", None),
+            "ms_precalentar": self.ms_precalentar,
+            "variante_cpu": getattr(sm, "variante_cpu", None) or None,
+            "hilos": getattr(sm, "hilos", None),
+            "ctx": getattr(sm, "ctx", None),
+            "error": None,
+        }
+
+    def registrar_estado_modelo(self) -> None:
+        """Registra el estado del modelo cuando cambia durante la sesión del alumno."""
+        if not self.tiene_consentimiento():
+            return
+        datos = self._datos_modelo()
+        if datos["estado"] != self._modelo_registrado:
+            self._modelo_registrado = datos["estado"]
+            self._registrar("modelo_estado", datos)
+
     def _conversador(self) -> Conversador:
         """El conversador con modelo sólo si el modelo responde; si no, el de plantillas."""
         return self.conversador if self.estado_modelo() == "listo" else self._sin_modelo
+
+    @contextmanager
+    def _turno_modelo(self):
+        """Una petición del alumno al modelo; la anotación espera a que el modelo descanse."""
+        self._peticiones_alumno += 1
+        try:
+            with self.lock_modelo:
+                yield
+        finally:
+            self._peticiones_alumno -= 1
+            self._ultimo_uso_modelo = time.monotonic()
+
+    # ------------------------------------------------------------------- Registro
+    def tiene_consentimiento(self) -> bool:
+        return bool(self.codigo_activo and self.estado_alumno and self.estado_alumno.get("consentimiento") is True)
+
+    def _registrar(self, tipo: str, datos: dict) -> dict | None:
+        """Evento del alumno activo; quien no aceptó participar no deja ningún registro."""
+        if not self.tiene_consentimiento():
+            return None
+        return self.registro.registrar(self.codigo_activo, tipo, datos, intento=self.clave_intento_activa)
+
+    def _registrar_sesion_iniciada(self, version_consentimiento: str) -> None:
+        if not self.tiene_consentimiento():
+            return
+        sm = self.servidor_modelo
+        ruta_modelo = getattr(sm, "ruta_modelo", None)
+        modelo = self._datos_modelo()
+        self._modelo_registrado = modelo["estado"]
+        self._registrar("sesion_iniciada", {
+            "equipo": equipo.info_equipo(obtener_carpeta_datos(self.carpeta_datos), self.modo_ventana,
+                                         self.pantalla, modelo["variante_cpu"]),
+            "versiones": equipo.versiones(ruta_modelo),
+            "modelo": modelo,
+            "version_consentimiento": version_consentimiento,
+        })
+
+    def _datos_intento(self, p, modo: str) -> dict:
+        datos = {"problema": p.id if p.id in self.banco else "propio", "tema": p.topic, "metodo": p.method,
+                 "modo": modo}
+        if datos["problema"] == "propio":
+            datos["circuito_propio"] = self._intento().get("propio", "")
+        return datos
+
+    @staticmethod
+    def _datos_tutor(red: dict, base: str) -> dict:
+        return {
+            "texto_base": red.get("base", base),
+            "texto_mostrado": red["texto"],
+            "fuente": red["fuente"],
+            "guardia": red.get("guardia"),
+            "reintentos": red.get("reintentos", 0),
+            "intentos": red.get("intentos", []),
+            "ms": red.get("ms", 0),
+            "tokens_prompt": red.get("tokens_prompt", 0),
+            "tokens_salida": red.get("tokens_salida", 0),
+            "tokens_cache": red.get("tokens_cache", 0),
+        }
 
     # ------------------------------------------------------------- Almacenamiento
     def _ruta_estado(self, codigo_norm: str) -> Path:
@@ -127,6 +288,7 @@ class ApiTutor:
         estado.setdefault("consentimiento", None)
         estado.setdefault("intentos_en_curso", {})
         estado.setdefault("terminados", [])
+        estado.setdefault("cola_anotaciones", [])
         return estado
 
     def _guardar_estado(self) -> None:
@@ -153,9 +315,13 @@ class ApiTutor:
         if self._hay_intento() and self.t0_intento:
             self._intento()["segundos_activos"] = round(time.time() - self.t0_intento, 1)
 
-    def _soltar_intento(self) -> None:
+    def _soltar_intento(self, motivo: str = "otro_problema") -> None:
         """Pausa el intento activo: guarda su tiempo y deja de atenderlo."""
-        self._guardar_tiempo_activo()
+        if self._hay_intento():
+            self._guardar_tiempo_activo()
+            self._registrar("intento_pausado", {**self._datos_intento(self.problema_activo, self._intento()["modo"]),
+                                                "motivo": motivo,
+                                                "segundos_activos": self._intento()["segundos_activos"]})
         self.sesion_activa = None
         self.problema_activo = None
         self.clave_intento_activa = None
@@ -198,10 +364,14 @@ class ApiTutor:
         codigo_norm = normalizar(codigo_raw)
         estado = self._cargar_estado(codigo_norm)
         if estado is None:
-            estado = {"consentimiento": None, "intentos_en_curso": {}, "terminados": []}
+            estado = {"consentimiento": None, "intentos_en_curso": {}, "terminados": [], "cola_anotaciones": []}
         self.codigo_activo = codigo_norm
         self.estado_alumno = estado
+        self.t0_sesion = time.monotonic()
+        pantalla = datos.get("pantalla")
+        self.pantalla = _datos_ui(pantalla) if isinstance(pantalla, dict) else None
         self._guardar_estado()
+        self._registrar_sesion_iniciada(self.get_consentimiento()["version"])
         return 200, {
             "ok": True,
             "codigo": formatear(codigo_norm),
@@ -214,15 +384,27 @@ class ApiTutor:
             return 401, {"error": "No hay sesión de alumno activa."}
 
         acepta = datos.get("acepta") is True
+        ya_aceptado = self.tiene_consentimiento()
         self.estado_alumno["consentimiento"] = acepta
         self._guardar_estado()
+        if acepta and not ya_aceptado:
+            version = self.get_consentimiento()["version"]
+            self._registrar("consentimiento", {"version": version, "acepta": True})
+            self._registrar_sesion_iniciada(version)
         return 200, {"ok": True, "consentimiento": acepta}
 
     def post_salir(self, datos: dict) -> tuple[int, dict]:
-        self._soltar_intento()
+        motivo = datos.get("motivo") if datos.get("motivo") in MOTIVOS_SALIDA else "boton"
+        self._soltar_intento(motivo)
+        if self.t0_sesion is not None:
+            self._registrar("sesion_terminada", {"motivo": motivo,
+                                                 "ms": round((time.monotonic() - self.t0_sesion) * 1000)})
         self._guardar_estado()
         self.codigo_activo = None
         self.estado_alumno = None
+        self.t0_sesion = None
+        self.pantalla = None
+        self._modelo_registrado = None
         return 200, {"ok": True}
 
     def get_problemas(self) -> dict:
@@ -306,6 +488,9 @@ class ApiTutor:
                 # la "Duración" de los indicadores cuenta también el tiempo antes de la pausa
                 s.t0 = self.t0_intento
                 chat = intento.get("chat", [])
+                self._registrar("intento_iniciado", {**self._datos_intento(p, modo), "retomado": True,
+                                                     "segundos_activos": intento.get("segundos_activos", 0.0),
+                                                     "paso_id": s.step.id, "paso_tipo": s.step.kind})
                 return 200, {
                     "retomado": True,
                     "problem": _describe(p),
@@ -342,6 +527,10 @@ class ApiTutor:
             "confianzas": [],
         }
         self._guardar_estado()
+        # el primer mensaje del tutor va aquí: no responde a ningún turno del alumno
+        self._registrar("intento_iniciado", {**self._datos_intento(p, modo), "retomado": False,
+                                             "segundos_activos": 0.0, "paso_id": s.step.id,
+                                             "paso_tipo": s.step.kind, "tutor": self._datos_tutor(red, msg_base)})
 
         return 200, {
             "retomado": False,
@@ -364,22 +553,24 @@ class ApiTutor:
 
         s = self.sesion_activa
         ruta = s.ruta_rapida(texto)
-        intencion = "respuesta"
+        turno = {"texto": texto, "ruta": ruta, "intencion": "respuesta", "intencion_modelo": None,
+                 "intencion_ms": None, "composicion": _composicion(datos.get("composicion"), texto)}
         if ruta == "ambiguo" and self.estado_modelo() == "listo":
-            with self.lock_modelo:
+            with self._turno_modelo():
                 info = self.conversador.entender(texto, s.pregunta_actual())
             if info:
-                intencion = info["intencion"]
+                turno.update(intencion=info["intencion"], intencion_modelo=info["intencion"],
+                             intencion_ms=info.get("ms"))
         # en un paso concept la ficha contiene la respuesta del paso: se atiende como pista
-        if intencion == "pregunta_teoria" and s.step.kind == "concept":
-            intencion = "ayuda"
+        if turno["intencion"] == "pregunta_teoria" and s.step.kind == "concept":
+            turno["intencion"] = "ayuda"
 
-        if intencion == "respuesta" and self._pide_confianza(texto):
-            self.pendiente = {"texto": texto, "ruta": ruta, "intencion": intencion}
+        if turno["intencion"] == "respuesta" and self._pide_confianza(texto):
+            self.pendiente = turno
             self._guardar_estado()
             return 200, {"necesita_confianza": True}
 
-        return 200, self._evaluar_turno(texto, ruta, intencion)
+        return 200, self._evaluar_turno(**turno)
 
     def _pide_confianza(self, texto: str) -> bool:
         """A lo más una vez por paso: un texto que el motor no pudo leer no vuelve a preguntarla."""
@@ -400,19 +591,39 @@ class ApiTutor:
         ms = datos.get("ms")
         ms = round(ms) if type(ms) in (int, float) and ms >= 0 else None
 
-        pendiente, self.pendiente = self.pendiente, None
+        turno, self.pendiente = self.pendiente, None
         self._intento().setdefault("confianzas", []).append(
             {"paso_id": self.sesion_activa.step.id, "valor": valor, "ms": ms})
-        return 200, self._evaluar_turno(pendiente["texto"], pendiente["ruta"], pendiente["intencion"])
+        return 200, self._evaluar_turno(**turno, confianza={"valor": valor, "ms": ms})
 
     def post_pista(self, datos: dict | None = None) -> tuple[int, dict]:
         if not self._hay_intento():
             return 400, {"error": "No hay ningún problema en curso."}
         self.pendiente = None
-        return 200, self._evaluar_turno("Dame una pista", ruta="motor", intencion="ayuda")
+        return 200, self._evaluar_turno("Dame una pista", ruta="motor", intencion="ayuda", boton=True)
 
     def post_eventos(self, datos: dict) -> tuple[int, dict]:
-        return 200, {"ok": True}
+        eventos = datos.get("eventos")
+        if not isinstance(eventos, list):
+            return 400, {"error": "Faltan los eventos."}
+        if not self.tiene_consentimiento():
+            return 200, {"ok": True, "registrados": 0}
+        ahora_ms, ahora_mono = time.time() * 1000, self.registro.mono_ahora()
+        envio = datos.get("mono_envio")
+        lote = []
+        for ev in eventos[:500]:
+            if not (isinstance(ev, dict) and ev.get("tipo") in EVENTOS_UI and isinstance(ev.get("datos", {}), dict)):
+                continue
+            ms, mono = ev.get("ms"), ev.get("mono")
+            ms = ms if _numero(ms) is not None and abs(ms - ahora_ms) < 86_400_000 else None
+            # la página mide con su propio reloj; se pasa al del arranque con la hora del envío
+            ok_mono = _numero(mono) is not None and _numero(envio) is not None and 0 <= envio - mono < 3_600_000
+            lote.append({"tipo": ev["tipo"], "datos": _datos_ui(ev.get("datos") or {}),
+                         "intento": self.clave_intento_activa, "origen": "ui", "ms": ms,
+                         "mono": ahora_mono - (envio - mono) if ok_mono else None})
+        if lote:
+            self.registro.registrar_varios(self.codigo_activo, lote)
+        return 200, {"ok": True, "registrados": len(lote)}
 
     def post_exportar(self, datos: dict) -> tuple[int, dict]:
         return 501, {"error": "La exportación todavía no está disponible."}
@@ -433,15 +644,23 @@ class ApiTutor:
         )
         return ctx
 
-    def _evaluar_turno(self, texto: str, ruta: str, intencion: str) -> dict:
+    def _evaluar_turno(self, texto: str, ruta: str, intencion: str, intencion_modelo: str | None = None,
+                       intencion_ms: int | None = None, composicion: dict | None = None,
+                       confianza: dict | None = None, boton: bool = False) -> dict:
         s = self.sesion_activa
         intento = self._intento()
         historial = [f"{m['rol']}: {m['texto']}" for m in intento["chat"]]
+        # lo que veía el alumno al escribir, para el registro y la anotación
+        paso, nivel, intentos_paso = s.step, s.level, s.step.data.get("_intentos", 0)
+        pregunta_tutor = intento["chat"][-1]["texto"] if intento["chat"] else s.pregunta_actual()
+        justificacion_pendiente = s.justify_pending is not None
+        n_transcript = len(s.transcript)
 
+        base = ""
         if intencion == "pregunta_teoria":
             # el motor no avanza
             conv = self._conversador()
-            with self.lock_modelo:
+            with self._turno_modelo():
                 red = conv.responder_teoria(texto, s.pregunta_actual(), self._contexto(historial, ruta, intencion))
         else:
             if intencion == "ayuda":
@@ -458,9 +677,39 @@ class ApiTutor:
         intento["chat"].append({"rol": "alumno", "texto": texto})
         intento["chat"].append({"rol": "tutor", "texto": red["texto"], "fuente": red["fuente"]})
 
+        if intencion == "pregunta_teoria" or intencion in SIN_MOTOR:
+            # ultimo_turno es del turno anterior: aquí el motor no evaluó nada
+            motor = {"respondio": False, "paso_id": paso.id, "paso_tipo": paso.kind, "correcto": None,
+                     "codigo": None, "nivel_antes": nivel, "nivel_despues": nivel, "pista": False,
+                     "intentos_paso": intentos_paso, "terminado": s.finished}
+        else:
+            u = s.ultimo_turno
+            motor = {"respondio": True, **{k: u[k] for k in ("paso_id", "paso_tipo", "correcto", "codigo",
+                                                             "nivel_antes", "nivel_despues", "pista",
+                                                             "intentos_paso", "terminado")}}
+        sobre = self._registrar("turno", {
+            "alumno": {"texto": texto, "caracteres": len(texto), "boton": boton},
+            "composicion": composicion,
+            "ruta": ruta,
+            "intencion": {"etiqueta": intencion, "modelo": intencion_modelo, "ms": intencion_ms},
+            "confianza": confianza,
+            "motor": motor,
+            "tutor": self._datos_tutor(red, base),
+            "teoria": ({"fichas": [[f, round(p, 3)] for f, p in red.get("fichas", [])],
+                        "encontro": red.get("encontro", False)} if intencion == "pregunta_teoria" else None),
+        })
+        if sobre is not None:
+            self._encolar_anotacion(sobre, texto, intencion, paso, pregunta_tutor,
+                                    justificacion_pendiente and any(m["rol"] == "justificacion"
+                                                                    for m in s.transcript[n_transcript:]))
+
         indicadores = None
         if s.finished:
             indicadores = s.indicators()
+            self._guardar_tiempo_activo()
+            self._registrar("intento_terminado", {**self._datos_intento(self.problema_activo, intento["modo"]),
+                                                  "segundos_activos": intento["segundos_activos"],
+                                                  "indicadores": indicadores})
             self._terminar_intento()
         else:
             self._guardar_tiempo_activo()
@@ -474,5 +723,75 @@ class ApiTutor:
 
     def _redactar(self, base: str, alumno: str, ctx: dict) -> dict:
         conv = self._conversador()
-        with self.lock_modelo:
+        with self._turno_modelo():
             return conv.redactar(base, alumno, ctx)
+
+    # ------------------------------------------------------------------ Anotación
+    def _encolar_anotacion(self, sobre: dict, texto: str, intencion: str, paso, pregunta: str,
+                           justifico: bool) -> None:
+        if intencion != "respuesta":
+            return
+        if justifico:
+            tipo = "justificacion"
+            errores = [c for c in self.sesion_activa.c["errores"] if self.sesion_activa.bank.get(c)]
+            idea = "Explica con sus palabras por qué su respuesta corregida es correcta."
+            if errores:
+                idea += f" El error que había cometido: {self.sesion_activa.bank.get(errores[-1]).descripcion}"
+        elif paso.kind in PASOS_ANOTADOS and not HELP_RE.search(texto) and not DIRECT_RE.search(texto):
+            tipo = PASOS_ANOTADOS[paso.kind]
+            idea = paso.data.get("hint", "") if tipo == "concepto" else IDEAS_ESPERADAS[tipo]
+        else:
+            return
+        self.estado_alumno.setdefault("cola_anotaciones", []).append({
+            "seq_turno": sobre["seq"], "arranque_turno": sobre["arranque"], "intento": sobre["intento"],
+            "tipo": tipo, "pregunta": pregunta, "idea_esperada": idea, "respuesta": texto, "fallos": 0,
+        })
+
+    def iniciar_anotaciones(self, intervalo: float = 2.0) -> None:
+        """Hilo de baja prioridad que anota las respuestas abiertas cuando el modelo está libre."""
+        def bucle():
+            while True:
+                time.sleep(intervalo)
+                try:
+                    self.anotar_pendiente()
+                except Exception:
+                    logger.exception("Error al anotar una respuesta")
+
+        threading.Thread(target=bucle, daemon=True, name="anotaciones").start()
+
+    def anotar_pendiente(self, reposo: float = ANOTACION_REPOSO) -> bool:
+        """Anota la respuesta más antigua de la cola si el modelo lleva `reposo` s sin atender al alumno.
+        No toca la sesión: el resultado sólo va al registro."""
+        with self.lock_estado:
+            if (not self.tiene_consentimiento() or not self.estado_alumno.get("cola_anotaciones")
+                    or self._peticiones_alumno or time.monotonic() - self._ultimo_uso_modelo < reposo
+                    or self.estado_modelo() != "listo"):
+                return False
+            tarea = self.estado_alumno["cola_anotaciones"].pop(0)
+            codigo = self.codigo_activo
+            self._guardar_estado()
+
+        with self.lock_modelo:
+            res = self.conversador.anotar(tarea["tipo"], tarea["pregunta"], tarea["idea_esperada"],
+                                          tarea["respuesta"])
+
+        if res is None and tarea["fallos"] < 1:
+            with self.lock_estado:
+                if self.codigo_activo == codigo:
+                    tarea["fallos"] += 1
+                    self.estado_alumno["cola_anotaciones"].insert(0, tarea)
+                    self._guardar_estado()
+                    return False
+        sm = self.servidor_modelo
+        self.registro.registrar(codigo, "anotacion", {
+            "seq_turno": tarea["seq_turno"],
+            "arranque_turno": tarea["arranque_turno"],
+            "tipo": tarea["tipo"],
+            "idea_esperada": tarea["idea_esperada"],
+            "rubrica": res["rubrica"] if res else None,
+            "ms": res["ms"] if res else None,
+            "tokens_prompt": res["tokens_prompt"] if res else None,
+            "tokens_salida": res["tokens_salida"] if res else None,
+            "modelo": getattr(sm, "ruta_modelo", Path(MODELO_ARCHIVO)).name,
+        }, intento=tarea["intento"])
+        return res is not None

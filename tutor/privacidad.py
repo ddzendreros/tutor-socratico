@@ -3,10 +3,17 @@ from __future__ import annotations
 
 import re
 
+# los números pegados a punto, coma u otro dígito, o seguidos de una unidad, son valores del circuito
+_ANTES = r"(?<![\d.,])"
+_DESPUES = r"(?![\d.,])(?!\s?(?:[kKmMuµ]?(?:Ω|ohms?|V|A|W)\b|Ω))"
+
 PII_PATTERNS = [
     (re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+"), "[correo]"),
-    (re.compile(r"\b\d{10}\b"), "[número]"),          # boletas IPN y teléfonos (10 dígitos)
-    (re.compile(r"\b(?:\+?52\s?)?\d{2,3}[\s-]?\d{3,4}[\s-]?\d{4}\b"), "[teléfono]"),
+    # teléfono: con +52, o con separadores en formato 2-4-4 o 3-3-4
+    (re.compile(_ANTES + r"(?:\+52[\s-]?(?:\d{10}|\d{2}[\s-]\d{4}[\s-]\d{4}|\d{3}[\s-]\d{3}[\s-]\d{4})"
+                r"|\d{2}[\s-]\d{4}[\s-]\d{4}|\d{3}[\s-]\d{3}[\s-]\d{4})" + _DESPUES), "[teléfono]"),
+    # boletas IPN y teléfonos sin separadores (10 dígitos)
+    (re.compile(_ANTES + r"\d{10}" + _DESPUES), "[número]"),
 ]
 
 

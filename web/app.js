@@ -21,6 +21,8 @@ const $ = (sel) => document.querySelector(sel);
 
 const urlParams = new URLSearchParams(window.location.search);
 let apiToken = urlParams.get("t") || "";
+const tele = window.Telemetria;
+tele.fijarToken(apiToken);
 
 const state = {
   codigo: null,
@@ -43,6 +45,8 @@ let completarEscritura = null;
 
 // ------------------------------------------------------------------ Comunicación API
 async function api(path, method = "GET", data = null) {
+  // los eventos pendientes van antes que la acción: así quedan con el alumno, el intento y el orden correctos
+  if (method === "POST" && path !== "/api/latido") await tele.vaciar();
   const opts = {
     method,
     headers: {
@@ -87,6 +91,7 @@ function show(id) {
   document.querySelectorAll(".screen").forEach((s) => {
     s.classList.toggle("active", s.id === id);
   });
+  tele.desplazamientoAutomatico();
   window.scrollTo(0, 0);
 }
 
@@ -188,7 +193,7 @@ function initPantallaCodigo() {
 
     setStatus("Verificando código…", true);
     try {
-      const res = await api("/api/entrar", "POST", { codigo: codigoInput });
+      const res = await api("/api/entrar", "POST", { codigo: codigoInput, pantalla: tele.pantalla() });
       $("#codigo").value = "";
       mostrarEstadoModelo();
       await entrarConEstado(res.codigo, res.requiere_consentimiento ? null : res.consentimiento);
@@ -230,6 +235,7 @@ function renderModes() {
     b.setAttribute("role", "radio");
     b.setAttribute("aria-checked", String(key === state.mode));
     b.addEventListener("click", () => {
+      tele.clic("modo", { modo: key });
       state.mode = key;
       renderModes();
       renderProblems();
@@ -293,7 +299,10 @@ function renderProblems() {
       tagsDiv.appendChild(tagEstado);
     }
 
-    b.addEventListener("click", () => startProblem(p.id));
+    b.addEventListener("click", () => {
+      tele.clic("problema", { problema: p.id });
+      startProblem(p.id);
+    });
     grid.appendChild(b);
   }
 }
@@ -304,8 +313,14 @@ function addMessage(role, text) {
   div.className = "msg " + role;
   div.textContent = text;
   $("#chat").appendChild(div);
-  div.scrollIntoView({ block: "end", behavior: "smooth" });
+  bajarA(div, true);
+  if (role === "tutor") tele.tutorMostrado();
   return div;
+}
+
+function bajarA(el, suave = false) {
+  tele.desplazamientoAutomatico();
+  el.scrollIntoView(suave ? { block: "end", behavior: "smooth" } : { block: "end" });
 }
 
 function addMessageTutorConEfecto(texto, onComplete = null) {
@@ -313,6 +328,8 @@ function addMessageTutorConEfecto(texto, onComplete = null) {
   const div = document.createElement("div");
   div.className = "msg tutor";
   $("#chat").appendChild(div);
+  // el tiempo de respuesta del alumno cuenta desde que el mensaje empieza a aparecer
+  tele.tutorMostrado();
 
   let i = 0;
   let terminado = false;
@@ -322,7 +339,7 @@ function addMessageTutorConEfecto(texto, onComplete = null) {
     if (i < texto.length) {
       div.textContent += texto[i];
       i += 1;
-      div.scrollIntoView({ block: "end" });
+      bajarA(div);
     } else {
       finalizar();
     }
@@ -334,7 +351,7 @@ function addMessageTutorConEfecto(texto, onComplete = null) {
     clearInterval(intervalo);
     div.textContent = texto;
     div.removeAttribute("title");
-    div.scrollIntoView({ block: "end", behavior: "smooth" });
+    bajarA(div, true);
     if (completarEscritura === finalizar) completarEscritura = null;
     if (onComplete) onComplete();
   }
@@ -345,6 +362,7 @@ function addMessageTutorConEfecto(texto, onComplete = null) {
 }
 
 function abrirModalDibujo(src, titulo) {
+  tele.dibujoAbierto();
   const modal = $("#modal-dibujo");
   const img = $("#modal-img");
   const modalTitulo = $("#modal-titulo");
@@ -354,6 +372,8 @@ function abrirModalDibujo(src, titulo) {
 }
 
 function cerrarModalDibujo() {
+  if ($("#modal-dibujo").style.display === "none") return;
+  tele.dibujoCerrado();
   $("#modal-dibujo").style.display = "none";
 }
 
@@ -365,6 +385,9 @@ function renderProblemCard(p) {
     <details><summary>Elementos del circuito</summary><ul class="elements"></ul></details>`;
   card.querySelector("h2").textContent = p.title;
   card.querySelector(".statement").textContent = p.statement;
+  card.querySelector("details").addEventListener("toggle", (e) => {
+    if (e.target.open) tele.clic("elementos_circuito");
+  });
 
   if (p.image) {
     const fig = document.createElement("figure");
@@ -389,6 +412,7 @@ function renderProblemCard(p) {
   }
 
   $("#cambiar").addEventListener("click", async () => {
+    tele.clic("cambiar_problema");
     if (completarEscritura) completarEscritura();
     await cargarProblemas();
     show("pantalla-problemas");
@@ -468,7 +492,7 @@ function mostrarIndicadorEscribiendo() {
   typing.className = "typing";
   typing.textContent = "El tutor está escribiendo…";
   $("#chat").appendChild(typing);
-  typing.scrollIntoView({ block: "end", behavior: "smooth" });
+  bajarA(typing, true);
   return typing;
 }
 
@@ -504,7 +528,7 @@ function pedirConfianza() {
   `;
 
   $("#chat").appendChild(card);
-  card.scrollIntoView({ block: "end", behavior: "smooth" });
+  bajarA(card, true);
 
   const responderConfianza = async (valor) => {
     const ms = Date.now() - t0Confianza;
@@ -534,6 +558,7 @@ async function send(text) {
   text = text.trim();
   if (!text || state.finished || state.ocupado) return;
   if (completarEscritura) completarEscritura();
+  const composicion = tele.composicion();
 
   addMessage("alumno", text);
   $("#entrada").value = "";
@@ -543,7 +568,7 @@ async function send(text) {
 
   const typing = mostrarIndicadorEscribiendo();
   try {
-    const res = await api("/api/responder", "POST", { texto: text });
+    const res = await api("/api/responder", "POST", { texto: text, composicion });
     typing.remove();
     if (res.necesita_confianza) {
       pedirConfianza();
@@ -560,6 +585,7 @@ async function send(text) {
 
 async function pedirPista() {
   if (state.finished || state.ocupado) return;
+  tele.clic("pista");
   if (completarEscritura) completarEscritura();
   addMessage("alumno", "Dame una pista");
   state.ocupado = true;
@@ -606,6 +632,7 @@ function initSession() {
   });
 
   $("#btn-salir").addEventListener("click", async () => {
+    tele.clic("salir");
     try {
       await api("/api/salir", "POST", { motivo: "boton" });
     } catch (_) {}
@@ -613,6 +640,7 @@ function initSession() {
   });
 
   $("#btn-exportar").addEventListener("click", async () => {
+    tele.clic("exportar");
     try {
       await api("/api/exportar", "POST", {});
     } catch (e) {

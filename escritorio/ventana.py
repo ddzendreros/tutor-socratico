@@ -11,6 +11,7 @@ from pathlib import Path
 import psutil
 
 from escritorio.api import ApiTutor
+from escritorio.equipo import huella_modelo, version_webview2
 from escritorio.modelo import ServidorModelo
 from escritorio.rutas import (
     buscar_llama,
@@ -73,36 +74,12 @@ def iniciar_modelo_segundo_plano(servidor_modelo: ServidorModelo, api: ApiTutor)
     """Inicia el modelo de lenguaje en un hilo secundario sin congelar la interfaz."""
     def _tarea():
         servidor_modelo.arrancar()
-        if servidor_modelo.estado == "listo":
-            api.conectar_modelo(servidor_modelo)
+        api.conectar_modelo(servidor_modelo)
+        # la huella del modelo (para el registro) se calcula una sola vez por archivo
+        huella_modelo(servidor_modelo.ruta_modelo)
 
     hilo = threading.Thread(target=_tarea, daemon=True)
     hilo.start()
-
-
-_WEBVIEW2 = "{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
-
-
-def version_webview2() -> str | None:
-    """Versión del runtime de WebView2, o None si no está. Sin él, pywebview no falla: cae en silencio
-    a MSHTML (Internet Explorer), donde la interfaz no funciona."""
-    if sys.platform != "win32":
-        return None
-    import winreg
-    claves = [
-        (winreg.HKEY_LOCAL_MACHINE, rf"SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{_WEBVIEW2}"),
-        (winreg.HKEY_LOCAL_MACHINE, rf"SOFTWARE\Microsoft\EdgeUpdate\Clients\{_WEBVIEW2}"),
-        (winreg.HKEY_CURRENT_USER, rf"SOFTWARE\Microsoft\EdgeUpdate\Clients\{_WEBVIEW2}"),
-    ]
-    for raiz, ruta in claves:
-        try:
-            with winreg.OpenKey(raiz, ruta) as clave:
-                version, _ = winreg.QueryValueEx(clave, "pv")
-        except OSError:
-            continue
-        if version and version != "0.0.0.0":
-            return str(version)
-    return None
 
 
 def arrancar_aplicacion(
@@ -137,6 +114,7 @@ def arrancar_aplicacion(
         else:
             logger.warning("Modelo (%s) o llama-server no encontrados; se ejecutará sin modelo.", ruta_mod)
 
+    api.iniciar_anotaciones()
     servidor_http = ServidorTutor(api=api, puerto=puerto)
     hilo_http = threading.Thread(target=servidor_http.serve_forever, daemon=True)
     hilo_http.start()
@@ -157,6 +135,7 @@ def arrancar_aplicacion(
                 logger.warning("No se pudo abrir la ventana (%s); se abre el navegador.", e)
                 usar_navegador = True
         if usar_navegador:
+            api.modo_ventana = "navegador"
             servidor_http.iniciar_vigilante_latidos()
             webbrowser.open(url)
             while hilo_http.is_alive():

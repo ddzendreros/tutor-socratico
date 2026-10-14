@@ -17,6 +17,7 @@ import httpx
 import psutil
 
 CREATE_NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+CTX = 4096
 
 
 def buscar_puerto_libre(host: str = "127.0.0.1") -> int:
@@ -50,6 +51,7 @@ class ServidorModelo:
             self.hilos = hilos
         self.puerto = puerto or buscar_puerto_libre()
         self.timeout_carga = timeout_carga
+        self.ctx = CTX
 
         self.llave: str = secrets.token_urlsafe(24)
         self.estado: str = "detenido"
@@ -84,8 +86,9 @@ class ServidorModelo:
             "-m", str(self.ruta_modelo),
             "--host", "127.0.0.1",
             "--port", str(self.puerto),
-            "-c", "4096",
-            "-np", "2",
+            "-c", str(self.ctx),
+            # voz, intención y anotación: con el contexto unificado, la tercera ranura no ocupa más memoria
+            "-np", "3",
             "--kv-unified",
             "-t", str(self.hilos),
             "--cache-ram", "0",

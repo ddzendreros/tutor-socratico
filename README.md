@@ -74,6 +74,13 @@ MALLA 2: VY R2 R3
 
 Los alumnos también pueden capturar un problema propio con el mismo formato.
 
+## Datos de la investigación
+
+Cada alumno entra con un código. Si acepta el aviso de participación, el tutor registra lo que hace
+dentro de su ventana: la conversación, cómo escribe cada mensaje, la confianza que declara, las
+decisiones del motor y del modelo, y los datos técnicos del equipo. Quien no acepta usa el tutor igual,
+sin que se registre nada. El esquema completo está en [`docs/DATOS.md`](docs/DATOS.md).
+
 ## Instalación
 
 > Pendiente.

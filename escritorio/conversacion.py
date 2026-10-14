@@ -10,8 +10,9 @@ import json
 import re
 from typing import Any
 
-from escritorio.config import (MAX_TOKENS_INTENCION, MAX_TOKENS_VOZ, TEMPERATURA_INTENCION, TEMPERATURA_VOZ,
-                               TEMPERATURA_VOZ_REINTENTO, TIMEOUT_INTENCION, TIMEOUT_VOZ)
+from escritorio.config import (MAX_TOKENS_ANOTACION, MAX_TOKENS_INTENCION, MAX_TOKENS_VOZ, RANURA_ANOTACION,
+                               RANURA_INTENCION, RANURA_VOZ, TEMPERATURA_INTENCION, TEMPERATURA_VOZ,
+                               TEMPERATURA_VOZ_REINTENTO, TIMEOUT_ANOTACION, TIMEOUT_INTENCION, TIMEOUT_VOZ)
 from tutor.llm import LLM, ajustar_veredicto, guard
 
 # (alumno, mensaje base del motor, cómo lo diría el tutor); mensajes reales del motor
@@ -131,9 +132,66 @@ PROMPT_TEORIA = (
     "Termina regresando al paso: «{pregunta_paso}»."
 )
 
+SCHEMA_ANOTACION = {
+    "name": "evaluacion_respuesta_abierta",
+    "schema": {
+        "type": "object",
+        "properties": {
+            "expresa_idea": {
+                "type": "string",
+                "enum": ["si", "parcial", "no"],
+            },
+            "claridad": {
+                "type": "integer",
+                "enum": [1, 2, 3],
+            },
+            "usa_terminos_tecnicos": {
+                "type": "boolean",
+            },
+            "idea_erronea": {
+                "type": "string",
+                "maxLength": 100,
+            },
+            "tipo": {
+                "type": "string",
+                "enum": ["explicacion", "repeticion", "vago", "fuera_de_tema"],
+            },
+        },
+        "required": ["expresa_idea", "claridad", "usa_terminos_tecnicos", "idea_erronea", "tipo"],
+        "additionalProperties": False,
+    },
+}
+
+# la rúbrica es sólo un dato para la investigación: nunca cambia lo que decide el motor
+PROMPT_ANOTACION = (
+    "Evalúas respuestas abiertas de alumnos de Circuitos Eléctricos para una investigación. "
+    "No corriges ni le hablas al alumno. Recibes el tipo de respuesta, la pregunta del tutor, la idea "
+    "esperada (referencia del profesor) y la respuesta del alumno. Devuelve:\n"
+    "- expresa_idea: \"si\" si la respuesta contiene la idea esperada, aunque use otras palabras; "
+    "\"parcial\" si contiene sólo una parte; \"no\" si no la contiene.\n"
+    "- claridad: 1 confusa, 2 entendible, 3 clara y precisa.\n"
+    "- usa_terminos_tecnicos: true si usa al menos un término de circuitos (corriente, voltaje, "
+    "resistencia, potencia, fuente, malla, nodo, LVK, LCK, serie, paralelo…).\n"
+    "- idea_erronea: si afirma algo falso sobre circuitos, descríbelo en una frase corta; si no, cadena "
+    "vacía. Una respuesta incompleta o vaga no es una idea errónea.\n"
+    "- tipo: \"explicacion\" si explica con sus palabras; \"repeticion\" si sólo repite la pregunta o los "
+    "datos; \"vago\" si no dice nada concreto; \"fuera_de_tema\" si no tiene que ver con la pregunta.\n\n"
+    "Ejemplo 1:\nPregunta: ¿Cómo podrías comprobar estos resultados?\n"
+    "Idea esperada: balance de potencias (PE = PC), sustituir en las ecuaciones originales o simular.\n"
+    "Respuesta: sumo las potencias de las fuentes y veo que dé lo mismo que las de las resistencias\n"
+    '{"expresa_idea": "si", "claridad": 3, "usa_terminos_tecnicos": true, "idea_erronea": "", '
+    '"tipo": "explicacion"}\n\n'
+    "Ejemplo 2:\nPregunta: Antes de seguir: ¿por qué es así? Explícalo con tus palabras.\n"
+    "Idea esperada: en la rama compartida circulan dos corrientes de malla en sentidos opuestos; la "
+    "corriente neta es su diferencia.\n"
+    "Respuesta: porque ahí se suman las corrientes\n"
+    '{"expresa_idea": "no", "claridad": 2, "usa_terminos_tecnicos": true, '
+    '"idea_erronea": "Cree que en la rama compartida las corrientes de malla se suman", "tipo": "explicacion"}'
+)
+
 PROMPTS_HASH = hashlib.sha256(
-    "\n".join([PROMPT_VOZ, PROMPT_TEORIA, json.dumps(mensajes_intencion(""), ensure_ascii=False),
-               json.dumps(SCHEMA_INTENCION, sort_keys=True),
+    "\n".join([PROMPT_VOZ, PROMPT_TEORIA, PROMPT_ANOTACION, json.dumps(mensajes_intencion(""), ensure_ascii=False),
+               json.dumps(SCHEMA_INTENCION, sort_keys=True), json.dumps(SCHEMA_ANOTACION, sort_keys=True),
                json.dumps(PLANTILLAS_BASE, sort_keys=True, ensure_ascii=False)]).encode("utf-8")
 ).hexdigest()[:12]
 
@@ -203,7 +261,7 @@ class Conversador:
         out, metricas = self.llm.chat(
             mensajes_intencion(texto, pregunta_paso),
             json_schema=SCHEMA_INTENCION,
-            id_slot=1,
+            id_slot=RANURA_INTENCION,
             seed=0,
             temperature=TEMPERATURA_INTENCION,
             max_tokens=MAX_TOKENS_INTENCION,
@@ -256,7 +314,7 @@ class Conversador:
 
         motivo = ""
         for n, temperatura in enumerate((TEMPERATURA_VOZ, TEMPERATURA_VOZ_REINTENTO)):
-            out, metricas = self.llm.chat(messages, id_slot=0, seed=42, temperature=temperatura,
+            out, metricas = self.llm.chat(messages, id_slot=RANURA_VOZ, seed=42, temperature=temperatura,
                                           max_tokens=MAX_TOKENS_VOZ, timeout=TIMEOUT_VOZ)
             resultado["ms"] += metricas.get("ms", 0)
             for clave in ("tokens_prompt", "tokens_salida", "tokens_cache"):
@@ -310,17 +368,58 @@ class Conversador:
             return ""
         return "\n".join(partes) + "\n\n"
 
-    def anotar(self, *args, **kwargs) -> None:
-        """Se implementa en una fase posterior."""
-        pass
+    def anotar(self, tipo: str, pregunta: str, idea_esperada: str, respuesta: str) -> dict | None:
+        """Rúbrica de una respuesta abierta (justificación, concepto, verificación o metacognición).
+
+        Usa su propia ranura para no borrar de la caché los prompts de la voz y la intención.
+        Devuelve {rubrica, ms, tokens_prompt, tokens_salida}, o None si el modelo no respondió bien.
+        """
+        if self.llm is None or not self.llm.enabled:
+            return None
+        messages = [
+            {"role": "system", "content": PROMPT_ANOTACION},
+            {"role": "user", "content": (f"Tipo de respuesta: {tipo}\nPregunta: {pregunta}\n"
+                                         f"Idea esperada: {idea_esperada}\nRespuesta: {respuesta}")},
+        ]
+        out, metricas = self.llm.chat(messages, json_schema=SCHEMA_ANOTACION, id_slot=RANURA_ANOTACION, seed=0,
+                                      temperature=0.0, max_tokens=MAX_TOKENS_ANOTACION, timeout=TIMEOUT_ANOTACION)
+        try:
+            data = json.loads(out or "")
+        except ValueError:
+            return None
+        valores = SCHEMA_ANOTACION["schema"]["properties"]
+        if not (isinstance(data, dict)
+                and data.get("expresa_idea") in valores["expresa_idea"]["enum"]
+                and data.get("claridad") in valores["claridad"]["enum"]
+                and isinstance(data.get("usa_terminos_tecnicos"), bool)
+                and isinstance(data.get("idea_erronea"), str)
+                and data.get("tipo") in valores["tipo"]["enum"]):
+            return None
+        rubrica = {k: data[k] for k in valores}
+        rubrica["idea_erronea"] = rubrica["idea_erronea"].strip()[:100]
+        return {"rubrica": rubrica, "ms": metricas.get("ms", 0),
+                "tokens_prompt": metricas.get("tokens_prompt", 0), "tokens_salida": metricas.get("tokens_salida", 0)}
+
+    def precalentar(self) -> None:
+        """Deja en la caché de cada ranura el prefijo de su prompt. Sin esto, con pocos núcleos la
+        primera clasificación de intención tarda más que su tiempo de espera y se pierde."""
+        if self.llm is None or not self.llm.enabled:
+            return
+        voz = [{"role": "system", "content": PROMPT_VOZ},
+               {"role": "user", "content": "Alumno: hola\nMensaje base: hola\nTutor:"}]
+        anotacion = [{"role": "system", "content": PROMPT_ANOTACION}, {"role": "user", "content": "Respuesta: hola"}]
+        for mensajes, ranura in ((mensajes_intencion("hola"), RANURA_INTENCION), (voz, RANURA_VOZ),
+                                 (anotacion, RANURA_ANOTACION)):
+            self.llm.chat(mensajes, id_slot=ranura, max_tokens=1, timeout=300.0)
 
     def responder_teoria(self, pregunta: str, pregunta_paso: str, contexto: dict | None = None) -> dict[str, Any]:
         """Responde la duda usando las 2 mejores fichas pedagógicas de clase.
 
         Pasa por guard() con contexto_guardia(sesion).
         Si no hay ficha sobre el umbral, usa la plantilla predeterminada y redactar().
-        Devuelve {texto, fichas: [(id, puntaje)], encontro, fuente: modelo|ficha|plantilla,
-        guardia: {ok, motivo}, intentos, ms}; `fuente` "ficha" es el texto de la ficha tal cual.
+        Devuelve {texto, base, fichas: [(id, puntaje)], encontro, fuente: modelo|ficha|plantilla,
+        guardia: {ok, motivo}, reintentos, intentos, ms, tokens…}; `fuente` "ficha" es el texto de la
+        ficha tal cual, y `base` lo que se muestra si el modelo no responde.
         """
         from escritorio.conocimiento import buscar, UMBRAL_TEORIA
 
@@ -330,15 +429,14 @@ class Conversador:
         if not resultados:
             base = (f"Esa duda no viene en el material de clase que tengo; anótala para "
                     f"preguntarle a tu profesor. Mientras, {pregunta_paso}")
-            red = self.redactar(base, pregunta, ctx)
-            return {"texto": red["texto"], "fichas": [], "encontro": False, "fuente": red["fuente"],
-                    "guardia": red["guardia"], "intentos": red["intentos"], "ms": red["ms"]}
+            return {**self.redactar(base, pregunta, ctx), "base": base, "fichas": [], "encontro": False}
 
         fichas_info = [(f.id, puntaje) for f, puntaje in resultados]
         texto_fichas = "\n\n".join(f"[{f.titulo}]\n{f.contenido}" for f, _ in resultados)
-        resultado = {"texto": f"{resultados[0][0].contenido} {pregunta_paso}", "fichas": fichas_info,
-                     "encontro": True, "fuente": "ficha", "guardia": {"ok": True, "motivo": "sin modelo"},
-                     "intentos": [], "ms": 0}
+        base = f"{resultados[0][0].contenido} {pregunta_paso}"
+        resultado = {"texto": base, "base": base, "fichas": fichas_info, "encontro": True, "fuente": "ficha",
+                     "guardia": {"ok": True, "motivo": "sin modelo"}, "reintentos": 0, "intentos": [], "ms": 0,
+                     "tokens_prompt": 0, "tokens_salida": 0, "tokens_cache": 0}
 
         if self.llm is None or not self.llm.enabled:
             return resultado
@@ -350,10 +448,13 @@ class Conversador:
         ]
 
         motivo = ""
-        for temperatura in (TEMPERATURA_VOZ, TEMPERATURA_VOZ_REINTENTO):
-            out, metricas = self.llm.chat(messages, id_slot=0, seed=42, temperature=temperatura,
+        for n, temperatura in enumerate((TEMPERATURA_VOZ, TEMPERATURA_VOZ_REINTENTO)):
+            out, metricas = self.llm.chat(messages, id_slot=RANURA_VOZ, seed=42, temperature=temperatura,
                                           max_tokens=MAX_TOKENS_VOZ, timeout=TIMEOUT_VOZ)
             resultado["ms"] += metricas.get("ms", 0)
+            for clave in ("tokens_prompt", "tokens_salida", "tokens_cache"):
+                resultado[clave] = metricas.get(clave, 0)
+            resultado["reintentos"] = n
             if not out:
                 motivo = "sin respuesta del modelo"
                 resultado["intentos"].append({"texto": "", "ok": False, "motivo": motivo})
