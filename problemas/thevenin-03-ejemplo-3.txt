@@ -1,0 +1,16 @@
+TITULO: Thévenin y Norton · Ejemplo 3 (cuatro resistencias)
+TEMA: thevenin
+METODO: thevenin
+NIVEL: intermedio
+FUENTE: Material de clase, Tema 6 (Thévenin y Norton), Ejemplo 3, pp. 28–34
+IMAGEN: thevenin-03-ejemplo-3.svg
+ENUNCIADO: Una fuente de corriente de 3 A sube por la rama izquierda. De ahí salen R1 = 2 Ω hacia el nodo central y R3 = 4 Ω por arriba hasta la terminal A. R2 = 6 Ω une el nodo central con A y R4 = 1 Ω baja del nodo central al riel inferior, que es la terminal B (nodo 0). Encuentra el circuito equivalente de Thévenin y el de Norton entre A y B.
+PIDE: TH A-0
+RESPUESTA: Rth=4 Vth=6 IN=1.5
+NOTA: (para el profesor) La diapositiva obtiene I3 = −1.5 A con sus mallas y dibuja IN = 1.5 A hacia A: el signo es el de su malla. Aquí IN se mide de A a B por el corto y vale +1.5 A.
+
+I1 0 x 3
+R1 x m 2
+R3 x A 4
+R2 m A 6
+R4 m 0 1

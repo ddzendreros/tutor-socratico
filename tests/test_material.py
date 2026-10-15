@@ -4,7 +4,7 @@ import pytest
 
 from tutor import analysis as an
 from tutor.problems import DEFAULT_DIR, load_bank
-from tutor.solver import solve, target_value
+from tutor.solver import equivalente_thevenin, sin_elemento, solve, target_value
 
 BANK = load_bank()
 TOL = 0.01
@@ -12,6 +12,11 @@ TOL = 0.01
 
 def _value(p, key):
     c = p.circuit
+    if key in ("Rth", "Vth", "IN"):
+        t = next(t for t in c.targets if t.quantity == "TH")
+        a, b = (c.get(t.element).n1, c.get(t.element).n2) if t.element else t.nodes
+        vth, rth, i_n = equivalente_thevenin(c, a, b, t.element)
+        return float({"Rth": rth, "Vth": vth, "IN": i_n}[key])
     if key == "Req":
         t = next(t for t in c.targets if t.quantity == "Req")
         return float(target_value(c, solve(c), t))

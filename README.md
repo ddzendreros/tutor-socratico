@@ -3,7 +3,7 @@
 Tutor que guía al estudiante con preguntas y pistas graduadas (escalera de andamiaje 0–5) para
 resolver problemas de circuitos de CD: Ley de Ohm y potencia, serie/paralelo, mallas (con mallas
 fantasma y supermallas), nodos (con nodos fantasma y supernodos), divisor de voltaje y de corriente,
-y superposición. Sigue el **método de formato**
+superposición y equivalentes de Thévenin y Norton. Sigue el **método de formato**
 que se usa en clase y tiene costo **$0**. Se está convirtiendo en una aplicación de escritorio para
 Windows 10/11 que funcione sin internet.
 
@@ -139,8 +139,7 @@ data/                banco de errores (editable en Excel)
 
 ## Límites conocidos
 
-- Sólo CD resistivo. Thévenin/Norton completos, superposición, fuentes dependientes y CA quedan
-  para la etapa 2 (la resistencia vista desde dos terminales sí está disponible).
+- Sólo CD resistivo. Las fuentes dependientes y la CA quedan para la etapa 2.
 - La conversión delta-estrella se acepta por su resultado final, sin revisar los pasos intermedios.
 - Las respuestas conceptuales abiertas se evalúan con palabras clave y son permisivas a propósito:
   en la duda, el tutor acepta y pide justificación.

@@ -119,7 +119,7 @@ Un mensaje del alumno (o un clic en "Pista") y la respuesta del tutor.
 - `ruta`: `motor` (lo decidió una regla) o `ambiguo` (se le preguntó al modelo la intención).
 - `intencion`: `etiqueta` con la que se atendió (`respuesta`, `ayuda`, `pregunta_teoria`,
   `pregunta_paso`, `animo`, `fuera_de_tema` o `charla`), `modelo` (lo que dijo el modelo, o `null` si no
-  se le preguntó o no respondió) y `ms`. Una pregunta de teoría en un paso de concepto (`concept` o `sup_apagar`) se atiende como
+  se le preguntó o no respondió) y `ms`. Una pregunta de teoría en un paso de concepto (`concept`, `sup_apagar` o `th_equivalentes`) se atiende como
   `ayuda`, pero `modelo` conserva `pregunta_teoria`.
 - `confianza`: `null` si no se preguntó en este turno; si se preguntó, `valor` (1 a 5, o `null` si eligió
   "Prefiero no decir") y `ms` (lo que tardó en contestar).

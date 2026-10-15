@@ -19,7 +19,9 @@ editar sin tocar código:
     MALLA 2: VY R2 R3
 
 PIDE admite: VIP (tabla de V, I y P en cada resistencia), "I R2", "V R1",
-"P R3", "Req V1" (la que ve la fuente) o "Req a-b", separados por ";".
+"P R3", "Req V1" (la que ve la fuente) o "Req a-b", y el equivalente de Thévenin
+y Norton: "TH a-b" (entre dos terminales abiertas) o "TH R2" (lo que ve la
+carga R2, que se retira para calcularlo), separados por ";".
 RESPUESTA guarda los resultados publicados en el material; las pruebas
 verifican que el motor los reproduce.
 """
@@ -57,7 +59,7 @@ class Problem:
 
 
 def parse_targets(text: str) -> list[Target]:
-    """'I R2; P R3; Req V1; Req a-b; VIP' -> lista de Target."""
+    """'I R2; P R3; Req V1; Req a-b; TH a-b; TH R2; VIP' -> lista de Target."""
     out = []
     for part in re.split(r"[;\n]", text or ""):
         tok = part.strip().split()
@@ -67,13 +69,13 @@ def parse_targets(text: str) -> list[Target]:
             out.append(Target("VIP"))
             continue
         if len(tok) < 2:
-            raise CircuitError(f"No entiendo '{part.strip()}'. Usa: VIP; I R2; V R1; P R3; Req V1; Req a-b")
-        q = {"i": "I", "v": "V", "p": "P", "req": "Req"}.get(tok[0].lower())
+            raise CircuitError(f"No entiendo '{part.strip()}'. Usa: VIP; I R2; V R1; P R3; Req V1; Req a-b; TH a-b; TH R2")
+        q = {"i": "I", "v": "V", "p": "P", "req": "Req", "th": "TH"}.get(tok[0].lower())
         if not q:
-            raise CircuitError(f"No entiendo '{part.strip()}'. Usa: VIP; I R2; V R1; P R3; Req V1; Req a-b")
-        if q == "Req" and "-" in tok[1]:
+            raise CircuitError(f"No entiendo '{part.strip()}'. Usa: VIP; I R2; V R1; P R3; Req V1; Req a-b; TH a-b; TH R2")
+        if q in ("Req", "TH") and "-" in tok[1]:
             a, b = tok[1].split("-", 1)
-            out.append(Target("Req", None, (a, b)))
+            out.append(Target(q, None, (a, b)))
         else:
             out.append(Target(q, tok[1]))
     return out
@@ -85,7 +87,7 @@ def targets_to_text(ts: list[Target]) -> str:
         if t.quantity == "VIP":
             parts.append("VIP")
         elif t.nodes:
-            parts.append(f"Req {t.nodes[0]}-{t.nodes[1]}")
+            parts.append(f"{t.quantity} {t.nodes[0]}-{t.nodes[1]}")
         else:
             parts.append(f"{t.quantity} {t.element}")
     return "; ".join(parts)

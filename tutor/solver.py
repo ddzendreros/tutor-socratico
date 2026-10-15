@@ -133,6 +133,41 @@ def apagar_fuentes(circuit: Circuit, activa: str | None) -> Circuit:
                    [list(m) for m in circuit.meshes])
 
 
+def sin_elemento(circuit: Circuit, name: str | None) -> Circuit:
+    """Copia del circuito sin el elemento `name` (la carga que se retira para el equivalente)."""
+    elements = [e for e in circuit.elements if name is None or e.name != name]
+    return Circuit(elements, list(circuit.targets), circuit.statement, [list(m) for m in circuit.meshes])
+
+
+def voltaje_abierto(circuit: Circuit, a: str, b: str, exclude: str | None = None) -> sp.Rational:
+    """V_A − V_B con las terminales abiertas (y la carga `exclude` retirada)."""
+    c = sin_elemento(circuit, exclude)
+    if a == b or not {a, b} <= set(c.nodes):
+        raise CircuitError(f"Las terminales {a} y {b} deben ser dos nodos distintos del circuito.")
+    sol = _mna(c.elements, c.non_ground_nodes)
+    return sp.nsimplify(sol.node_v[a] - sol.node_v[b])
+
+
+def corriente_corto(circuit: Circuit, a: str, b: str, exclude: str | None = None) -> sp.Rational:
+    """Corriente de A a B por un corto (fuente de 0 V) entre A y B, con la carga `exclude` retirada."""
+    c = sin_elemento(circuit, exclude)
+    if a == b or not {a, b} <= set(c.nodes):
+        raise CircuitError(f"Las terminales {a} y {b} deben ser dos nodos distintos del circuito.")
+    corto = Element("__corto", "V", a, b, sp.Integer(0))
+    elems = c.elements + [corto]
+    nodes = [n for n in dict.fromkeys(x for e in elems for x in (e.n1, e.n2)) if n != "0"]
+    return sp.nsimplify(_mna(elems, nodes).elem_i["__corto"])
+
+
+def equivalente_thevenin(circuit: Circuit, a: str, b: str,
+                         exclude: str | None = None) -> tuple[sp.Rational, sp.Rational, sp.Rational]:
+    """(Vth, Rth, In) visto desde A y B: voltaje abierto, resistencia con las fuentes apagadas
+    y corriente por el corto, de A a B."""
+    vth = voltaje_abierto(circuit, a, b, exclude)
+    rth = equivalent_resistance(sin_elemento(circuit, exclude), a, b)
+    return vth, rth, corriente_corto(circuit, a, b, exclude)
+
+
 def target_value(circuit: Circuit, sol: Solution, t: Target) -> sp.Rational:
     if t.quantity == "I":
         return sol.elem_i[t.element]
@@ -149,4 +184,4 @@ def target_value(circuit: Circuit, sol: Solution, t: Target) -> sp.Rational:
 
 
 def target_unit(t: Target) -> str:
-    return {"I": "A", "V": "V", "P": "W", "Req": "Ω"}[t.quantity]
+    return {"I": "A", "V": "V", "P": "W", "Req": "Ω", "TH": ""}[t.quantity]

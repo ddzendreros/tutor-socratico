@@ -1,0 +1,14 @@
+TITULO: Thévenin y Norton · Ejemplo 1 (fuente de voltaje)
+TEMA: thevenin
+METODO: thevenin
+NIVEL: básico
+FUENTE: Material de clase, Tema 6 (Thévenin y Norton), Ejemplo 1, pp. 19–23
+IMAGEN: thevenin-01-ejemplo-1.svg
+ENUNCIADO: Una fuente de 12 V alimenta a R1 = 3 Ω, que va a la terminal A. R2 = 6 Ω está entre A y B; la terminal B es el riel inferior (nodo 0). Encuentra el circuito equivalente de Thévenin y el de Norton entre A y B.
+PIDE: TH A-0
+RESPUESTA: Rth=2 Vth=8 IN=4
+NOTA: (para el profesor) Aquí Rth se obtiene con la fuente en corto (R1 ∥ R2), Vth con el divisor de voltaje y IN con la Ley de Ohm: con el corto, R2 queda en paralelo con él y no conduce.
+
+V1 x 0 12
+R1 x A 3
+R2 A 0 6

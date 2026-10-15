@@ -85,7 +85,7 @@
           <code>I1 0 a 2</code> (fuente de corriente, del primer nodo al segundo). El nodo de
           referencia es <code>0</code>. Para mallas, declara cada malla como está dibujada, con los
           elementos en sentido horario: <code>MALLA 1: V1 R1 R2</code>. Qué pide:
-          <code>PIDE: VIP</code> (tabla de V, I y P), <code>PIDE: Req V1</code>, <code>PIDE: I R2</code>.</p>
+          <code>PIDE: VIP</code> (tabla de V, I y P), <code>PIDE: Req V1</code>, <code>PIDE: I R2</code>, <code>PIDE: TH A-B</code> (Thévenin y Norton entre dos terminales).</p>
         <textarea id="propio" rows="8" spellcheck="false" placeholder="V1 a 0 12&#10;R1 a b 4&#10;R2 b 0 2&#10;R3 b c 6&#10;V2 0 c 6&#10;MALLA 1: V1 R1 R2&#10;MALLA 2: R2 R3 V2"></textarea>
         <div class="row">
           <select id="propio-metodo">
@@ -95,6 +95,7 @@
             <option value="ohm">Ley de Ohm</option>
             <option value="divisor">Divisor de voltaje y corriente</option>
             <option value="superposicion">Superposición</option>
+            <option value="thevenin">Thévenin y Norton</option>
           </select>
           <button id="propio-empezar" class="primary" type="button">Empezar</button>
         </div>

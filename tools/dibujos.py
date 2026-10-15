@@ -128,6 +128,31 @@ DIBUJOS: dict[str, dict] = {
         elementos=[("VT", (0, 2), (0, 0), "l"), ("R1", (0, 2), (2, 2), "t"), ("R2", (3, 2), (3, 0), "r"),
                    ("R3", (5, 2), (5, 0), "r"), ("R4", (6, 2), (8, 2), "t")],
     ),
+    "thevenin-01-ejemplo-1": dict(
+        nodos={"0": [[(0, 0), (4, 0)]], "x": [[(0, 2)]], "A": [[(2, 2), (4, 2)]]},
+        elementos=[("V1", (0, 2), (0, 0), "l"), ("R1", (0, 2), (2, 2), "t"), ("R2", (2, 2), (2, 0), "r")],
+        terminales=[("A", (4, 2)), ("B", (4, 0))],
+    ),
+    "thevenin-02-ejemplo-2": dict(
+        nodos={"0": [[(0, 0), (4, 0)]], "x": [[(0, 2)]], "A": [[(2, 2), (4, 2)]]},
+        elementos=[("I1", (0, 0), (0, 2), "l"), ("R1", (0, 2), (2, 2), "t"), ("R2", (2, 2), (2, 0), "r")],
+        terminales=[("A", (4, 2)), ("B", (4, 0))],
+    ),
+    "thevenin-03-ejemplo-3": dict(
+        nodos={"0": [[(0, 0), (7, 0)]], "x": [[(0, 2), (0, 4), (2, 4)]], "m": [[(2, 2), (4, 2)]],
+               "A": [[(4, 4), (6, 4), (6, 2), (7, 2)]]},
+        elementos=[("I1", (0, 0), (0, 2), "l"), ("R1", (0, 2), (2, 2), "t"), ("R3", (2, 4), (4, 4), "t"),
+                   ("R2", (4, 2), (6, 2), "t"), ("R4", (3, 2), (3, 0), "r")],
+        terminales=[("A", (7, 2)), ("B", (7, 0))],
+    ),
+    "thevenin-04-practica": dict(
+        nodos={"0": [[(0, 0), (6, 0)]], "tl": [[(0, 4)]], "a": [[(3, 4), (6, 4)]], "b": [[(3, 2)]],
+               "c": [[(6, 2)]]},
+        elementos=[("IX", (0, 0), (0, 4), "l"), ("R1", (0, 4), (3, 4), "t"), ("R2", (3, 4), (3, 2), "l"),
+                   ("R3", (3, 2), (3, 0), "l"), ("R4", (3, 2), (6, 2), "b"), ("VX", (6, 4), (6, 2), "r"),
+                   ("R5", (6, 2), (6, 0), "r")],
+        terminales=[("A", (3, 4), "t"), ("B", (3, 2), "l")],
+    ),
     "serie-04-thevenin-rab": dict(
         nodos={"0": [[(0, 0), (4, 0)]], "x": [[(0, 2)]], "A": [[(2, 2), (4, 2)]]},
         elementos=[("V1", (0, 2), (0, 0), "l"), ("R1", (0, 2), (2, 2), "t"), ("R2", (2, 2), (2, 0), "r")],
@@ -241,9 +266,9 @@ def draw(pid: str, spec: dict, circuit, path: Path) -> None:
             _label(d, text, _xy(p), "t", 0.2, NODE_COLOR, 18)
         if spec.get("tierra"):
             d.add(elm.Ground().at(_xy(spec["tierra"])))
-        for text, p in spec.get("terminales", []):
+        for text, p, *lado in spec.get("terminales", []):
             d.add(elm.Dot(open=True, radius=0.15).at(_xy(p)))
-            _label(d, text, _xy(p), "r", 0.35, NODE_COLOR, 18)
+            _label(d, text, _xy(p), lado[0] if lado else "r", 0.35, NODE_COLOR, 18)
         d.save(str(path))
     if path.suffix == ".svg":
         # schemdraw escribe font-family="sans", que los navegadores no reconocen (caen en una serif)

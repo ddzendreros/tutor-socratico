@@ -8,7 +8,7 @@ from tutor.circuit import CircuitError, Target, parse_netlist
 from tutor.engine import CONFIANZA_KINDS, MODES, Session, reconstruir
 from tutor.errorbank import ErrorBank
 from tutor.llm import guard
-from tutor.problems import load_bank, parse_problem
+from tutor.problems import DEFAULT_DIR as RAIZ_PROBLEMAS, load_bank, parse_problem
 from tutor.solver import apagar_fuentes, solve
 from tests.test_flow import correct_answer
 
@@ -318,6 +318,27 @@ def test_superposicion_una_negacion_no_cuenta_como_error(pid, texto):
     assert codigos(s) == [] and s.step.id == "sup_parcial_1"
 
 
+@pytest.mark.parametrize("pid, texto", [
+    ("superposicion-01", "no se pone en corto, se abre"),
+    ("superposicion-02", "no se deja abierta, se pone en corto"),
+])
+def test_una_respuesta_que_empieza_con_no_se_no_es_pedir_ayuda(pid, texto):
+    s = sesion(pid)
+    dialogo(s, [INTRO, "2"])
+    s.reply(texto)
+    assert codigos(s) == [] and s.step.id == "sup_parcial_1"
+
+
+@pytest.mark.parametrize("texto, ayuda", [
+    ("no se", True), ("no sé", True), ("no se.", True), ("no se como hacerlo", True), ("no se que hacer", True),
+    ("no sé si va en serie", True), ("No se, ¿me ayudas?", True),
+    ("no se pone en corto, se abre", False), ("no se deja abierta", False), ("no se toma en cuenta R1", False),
+])
+def test_no_se_sin_acento_sólo_es_ayuda_cuando_expresa_duda(texto, ayuda):
+    from tutor.engine import HELP_RE
+    assert bool(HELP_RE.search(texto)) is ayuda
+
+
 @pytest.mark.parametrize("texto", ["quito las otras fuentes", "la apago", "no la dejo abierta"])
 def test_superposicion_apagar_sin_decir_con_que_pide_precisar_sin_penalizar(texto):
     s = sesion("superposicion-02")
@@ -535,3 +556,602 @@ def test_la_respuesta_de_la_practica_sale_de_la_solucion_por_thevenin():
 def test_el_riel_inferior_del_ejemplo_3_une_los_extremos_de_r3_y_r4():
     c = banco("superposicion-03").circuit
     assert c.get("R3").n1 == c.get("R4").n2 == c.get("R1").n2 == c.get("R2").n2 == "0"
+
+
+# ============================================================ Thévenin y Norton
+from sympy import Rational  # noqa: E402
+
+from tutor.problems import parse_targets, targets_to_text  # noqa: E402
+from tutor.solver import corriente_corto, equivalente_thevenin, voltaje_abierto  # noqa: E402
+
+EJEMPLO_1 = "V1 x 0 12\nR1 x A 3\nR2 A 0 6"
+EJEMPLO_2 = "I1 0 x 4\nR1 x A 3\nR2 A 0 2"
+EJEMPLO_3 = "I1 0 x 3\nR1 x m 2\nR3 x A 4\nR2 m A 6\nR4 m 0 1"
+PRACTICA = "IX 0 tl 2\nR1 tl a 2\nR2 a b 1\nVX a c 5\nR3 b 0 6\nR4 b c 8\nR5 c 0 10"
+FUENTES_MIXTAS = "V1 a 0 10\nR1 a b 2\nR2 b 0 3\nI1 0 b 1"
+FUENTE_INVERTIDA = "V1 0 a 10\nR1 a A 3\nR2 A 0 6"
+
+
+@pytest.mark.parametrize("red, a, b, carga, esperado", [
+    (EJEMPLO_1, "A", "0", None, (8, 2, 4)),
+    (EJEMPLO_2, "A", "0", None, (8, 2, 4)),
+    (EJEMPLO_3, "A", "0", None, (6, 4, Rational(3, 2))),
+    (PRACTICA, "a", "b", "R2", (Rational(35, 3), Rational(16, 3), Rational(35, 16))),
+    # a mano: V1 aporta 10·3/5 = 6 V en b, I1 aporta 1 A·(2 ∥ 3) = 6/5 V; en corto pasan 10/2 + 1 = 6 A
+    (FUENTES_MIXTAS, "b", "0", None, (Rational(36, 5), Rational(6, 5), 6)),
+    # fuente al revés: A queda más negativa que 0 y la corriente por el corto va de 0 hacia A
+    (FUENTE_INVERTIDA, "A", "0", None, (Rational(-20, 3), 2, Rational(-10, 3))),
+])
+def test_equivalente_de_thevenin_de_los_ejemplos_y_de_circuitos_a_mano(red, a, b, carga, esperado):
+    c = parse_netlist(red)
+    vth, rth, i_n = equivalente_thevenin(c, a, b, carga)
+    assert (vth, rth, i_n) == tuple(Rational(x) for x in esperado)
+    assert vth == i_n * rth
+    assert voltaje_abierto(c, a, b, carga) == vth and corriente_corto(c, a, b, carga) == i_n
+
+
+def test_sin_retirar_la_carga_el_voltaje_abierto_es_el_del_circuito_completo():
+    c = parse_netlist(PRACTICA)
+    assert voltaje_abierto(c, "a", "b") == solve(c).elem_v["R2"] == Rational(35, 19)
+    assert voltaje_abierto(c, "a", "b", "R2") == Rational(35, 3)
+
+
+def test_el_corto_entre_terminales_no_modifica_el_circuito_original():
+    c = parse_netlist(EJEMPLO_1)
+    corriente_corto(c, "A", "0")
+    assert [e.name for e in c.elements] == ["V1", "R1", "R2"] and solve(c).elem_v["R2"] == 8
+
+
+@pytest.mark.parametrize("a, b", [("A", "A"), ("A", "zz"), ("zz", "0")])
+def test_el_solver_rechaza_terminales_que_no_sirven(a, b):
+    c = parse_netlist(EJEMPLO_1)
+    with pytest.raises(CircuitError):
+        voltaje_abierto(c, a, b)
+    with pytest.raises(CircuitError):
+        corriente_corto(c, a, b)
+
+
+# --------------------------------------------------------------------- pedidos
+@pytest.mark.parametrize("texto, esperado", [
+    ("VIP", [Target("VIP")]),
+    ("I R2; P R3", [Target("I", "R2"), Target("P", "R3")]),
+    ("V R1\nI R2", [Target("V", "R1"), Target("I", "R2")]),
+    ("Req V1", [Target("Req", "V1")]),
+    ("Req a-b", [Target("Req", None, ("a", "b"))]),
+    ("Req A-0; V R2", [Target("Req", None, ("A", "0")), Target("V", "R2")]),
+])
+def test_los_pedidos_anteriores_se_leen_igual(texto, esperado):
+    assert parse_targets(texto) == esperado
+    assert parse_targets(targets_to_text(esperado)) == esperado
+
+
+@pytest.mark.parametrize("texto, esperado", [
+    ("TH A-B", [Target("TH", None, ("A", "B"))]),
+    ("th a-0", [Target("TH", None, ("a", "0"))]),
+    ("TH R2", [Target("TH", "R2")]),
+    ("TH R2; V R2; I R2", [Target("TH", "R2"), Target("V", "R2"), Target("I", "R2")]),
+])
+def test_el_equivalente_se_pide_entre_terminales_o_como_lo_ve_una_carga(texto, esperado):
+    assert parse_targets(texto) == esperado
+    assert parse_targets(targets_to_text(esperado)) == esperado
+
+
+def test_describe_dice_a_quien_ve_el_equivalente():
+    assert "entre A y B" in Target("TH", None, ("A", "B")).describe()
+    assert "que ve R2" in Target("TH", "R2").describe()
+
+
+@pytest.mark.parametrize("texto", ["TH", "X R2", "TH-R2"])
+def test_un_pedido_que_no_se_entiende_sigue_siendo_error(texto):
+    with pytest.raises(CircuitError):
+        parse_targets(texto)
+
+
+@pytest.mark.parametrize("texto", [
+    "METODO: thevenin\nPIDE: I R2\n\n" + EJEMPLO_1,                     # sin equivalente
+    "METODO: thevenin\nPIDE: TH A-0; TH R2\n\n" + EJEMPLO_1,           # dos equivalentes
+    "METODO: thevenin\nPIDE: TH A-zz\n\n" + EJEMPLO_1,                 # nodo que no existe
+    "METODO: thevenin\nPIDE: TH V1\n\n" + EJEMPLO_1,                   # la carga debe ser una resistencia
+    "METODO: thevenin\nPIDE: TH R9\n\n" + EJEMPLO_1,                   # elemento que no existe
+    "METODO: thevenin\nPIDE: TH A-0; VIP\n\n" + EJEMPLO_1,             # la tabla no va con el equivalente
+    "METODO: thevenin\nPIDE: TH A-0\n\nR1 A 0 3\nR2 A 0 6",            # sin fuentes
+    "METODO: thevenin\nPIDE: TH x-0\n\nV1 x 0 12\nR1 x A 3\nR2 A 0 6",  # un voltaje directo entre las terminales
+])
+def test_thevenin_rechaza_pedidos_que_no_se_pueden_resolver(texto):
+    with pytest.raises(CircuitError):
+        propio(texto)
+
+
+@pytest.mark.parametrize("metodo", ["ohm", "serie_paralelo", "divisor", "superposicion", "mallas", "nodos"])
+def test_el_equivalente_se_pide_solo_con_el_metodo_thevenin(metodo):
+    with pytest.raises(CircuitError, match="método thevenin"):
+        propio(f"METODO: {metodo}\nPIDE: TH A-0\n\n" + EJEMPLO_1)
+
+
+# ----------------------------------------------------------------- diálogos
+INTRO_TH = "Me dan una fuente y dos resistencias y busco el equivalente entre A y B"
+
+
+def test_thevenin_el_nombre_del_metodo_conserva_las_mayusculas():
+    s = sesion("thevenin-01")
+    assert "con Thévenin y Norton" in s.transcript[0]["texto"]
+
+
+def test_thevenin_con_la_fuente_de_corriente_en_corto_da_la_resistencia_equivocada():
+    s = sesion("thevenin-02")
+    dialogo(s, [INTRO_TH])
+    assert s.step.id == "th_rth" and "apagar las fuentes" in s.transcript[-1]["texto"]
+    m = s.reply("1.2")                                  # R1 ∥ R2: la fuente de corriente quedó en corto
+    assert codigos(s) == ["TH_FUENTES_ENCENDIDAS"] and s.level == 1
+    assert "I1 en corto" in m and "{" not in m and "…" not in m
+    m = s.reply("2 Ω")
+    assert s.c["errores"] == ["TH_FUENTES_ENCENDIDAS"] and s.justify_pending is not None
+    assert "R1 queda con una terminal suelta" in m and "no se toma en cuenta" in m
+    dialogo(s, ["porque una fuente de corriente apagada deja el camino abierto"])
+    assert s.step.id == "th_vth"
+
+
+def test_thevenin_con_la_fuente_de_voltaje_abierta_da_la_resistencia_equivocada():
+    s = sesion("thevenin-01", "practicar")
+    m = s.reply("6")                                    # sólo queda R2: la fuente quedó abierta
+    assert codigos(s) == ["TH_FUENTES_ENCENDIDAS"] and "V1 abierta" in m
+    s.reply("2")
+    assert s.step.id == "th_vth" and codigos(s) == ["TH_FUENTES_ENCENDIDAS"]
+
+
+@pytest.mark.parametrize("pid, texto, fuente", [
+    ("thevenin-01", "dejo la fuente de voltaje abierta", "V1"),
+    ("thevenin-01", "la fuente queda abierta", "V1"),
+    ("thevenin-02", "pongo la fuente de corriente en corto", "I1"),
+    ("thevenin-02", "la fuente de corriente la dejo en cortocircuito", "I1"),
+])
+def test_thevenin_apagar_mal_las_fuentes_se_detecta_tambien_sin_el_valor(pid, texto, fuente):
+    s = sesion(pid, "practicar")
+    s.reply(texto)
+    assert codigos(s) == ["TH_FUENTES_ENCENDIDAS"] and s.step.id == "th_rth"
+    assert s.last_detail["fuente"] == fuente
+
+
+@pytest.mark.parametrize("pid, texto", [
+    ("thevenin-01", "pongo la fuente de voltaje en corto"),
+    ("thevenin-01", "no la dejo abierta, la pongo en corto"),
+    ("thevenin-02", "la fuente de corriente se abre"),
+    ("thevenin-02", "la fuente de corriente no se pone en corto, queda abierta"),
+    ("thevenin-02", "quito la fuente"),
+    ("thevenin-01", "apago la fuente"),
+])
+def test_thevenin_apagar_bien_o_a_medias_no_se_penaliza_y_pide_la_resistencia(pid, texto):
+    s = sesion(pid, "practicar")
+    m = s.reply(texto)
+    assert codigos(s) == [] and s.step.id == "th_rth"
+    assert "No logré relacionar" not in m and "Con el circuito ya apagado, ¿qué resistencias quedan" in m
+
+
+def test_thevenin_la_resistencia_suelta_se_dice_en_la_escalera_y_al_acertar():
+    s = sesion("thevenin-02", "practicar")
+    for _ in range(3):
+        m = s.reply("pista")
+    assert s.level == 3
+    assert "R1 queda con una terminal suelta" in m and "Al abrir la fuente de corriente I1" in m
+    s2 = sesion("thevenin-04", "practicar")
+    for _ in range(3):
+        m = s2.reply("pista")
+    assert "R1 queda con una terminal suelta" in m and "IX" in m
+    assert "suelta" in s2.reply("5.333")
+
+
+def test_thevenin_sin_resistencias_sueltas_no_menciona_terminales_sueltas():
+    s = sesion("thevenin-01", "practicar")
+    for _ in range(3):
+        m = s.reply("pista")
+    assert "suelta" not in m
+    assert "suelta" not in s.reply("2")
+
+
+def test_thevenin_el_voltaje_de_thevenin_detecta_divisor_incompleto_y_signo():
+    s = sesion("thevenin-01", "practicar")
+    s.reply("2")
+    s.reply("24 V")                                     # 12 V · 6 Ω / 3 Ω: sin la resistencia total
+    assert codigos(s) == ["DIV_V_RT_INCORRECTA"] and s.step.id == "th_vth"
+    m = s.reply("-8 V")
+    assert codigos(s)[-1] == "VALUE_SIGN" and "V_A − V_0" in m and "terminal positiva" in m
+    s.reply("8 V")
+    assert s.step.id == "th_in"
+
+
+def test_thevenin_la_mutacion_del_divisor_solo_aparece_donde_el_circuito_es_un_divisor():
+    assert set(sesion("thevenin-01")._th_mutaciones_vth()) == {"DIV_V_RT_INCORRECTA"}
+    for pid in ("thevenin-02", "thevenin-03", "thevenin-04"):
+        assert sesion(pid)._th_mutaciones_vth() == {}
+    s = sesion("thevenin-02", "practicar")
+    s.reply("2")
+    s.reply("5 V")
+    assert codigos(s) == ["TARGET_WRONG"]
+
+
+def test_thevenin_el_voltaje_acepta_la_cuenta_completa_y_varios_datos_en_el_mensaje():
+    for texto in ("V_AB = 12(6)/(3 + 6) = 8 V", "Vth = 8 V, Rth = 2 Ω", "Vth = 8"):
+        s = sesion("thevenin-01", "practicar")
+        s.reply("2")
+        s.reply(texto)
+        assert s.step.id == "th_in" and codigos(s) == [], texto
+
+
+def test_thevenin_la_corriente_de_norton_acepta_la_magnitud_y_registra_el_sentido():
+    s = sesion("thevenin-03", "practicar")
+    dialogo(s, ["4", "6"])
+    m = s.reply("-1.5 A")                               # I3 de la diapositiva, con el sentido de su malla
+    assert s.step.id == "th_equivalentes" and codigos(s) == []
+    assert s.th_sentido_in == "en contra" and "magnitud" in m
+    s = sesion("thevenin-03", "practicar")
+    dialogo(s, ["4", "6", "1.5 A"])
+    assert s.th_sentido_in == "a favor" and s.step.id == "th_equivalentes"
+
+
+def test_thevenin_una_corriente_de_norton_equivocada_es_error():
+    s = sesion("thevenin-03", "practicar")
+    dialogo(s, ["4", "6", "6 A"])                       # Vth: no es la corriente del corto
+    assert codigos(s) == ["TARGET_WRONG"] and s.step.id == "th_in"
+
+
+@pytest.mark.parametrize("texto", [
+    "Vth en serie con Rth e IN en paralelo con RN",
+    "Thévenin en serie, Norton en paralelo",
+    "la fuente de voltaje va en serie y la de corriente en paralelo",
+    "IN no va en serie, va en paralelo; Vth no va en paralelo, va en serie",
+    "Norton: no va en serie sino en paralelo. Thévenin en serie.",
+    "Vth = 8 V en serie con Rth = 2 Ω; IN = 4 A en paralelo con RN = 2 Ω",
+    "Rth va en serie con Vth. RN va en paralelo con IN",
+    "Thévenin es Vth en serie con Rth; Norton es IN en paralelo con RN, y RN es igual a Rth",
+    "Vth en serie con Rth, IN en paralelo con RN, y RN = Rth",
+])
+def test_equivalentes_se_leen_bien_con_negaciones_y_con_valores(texto):
+    s = sesion("thevenin-01", "practicar")
+    dialogo(s, ["2", "8", "4", texto])
+    assert s.step.kind == "verify" and codigos(s) == [], texto
+
+
+@pytest.mark.parametrize("texto", [
+    "Thévenin va en serie con Rth",
+    "Norton va en paralelo",
+    "Norton no va en serie",
+    "la fuente de voltaje en serie",
+])
+def test_equivalentes_a_medias_piden_el_otro_sin_penalizar(texto):
+    s = sesion("thevenin-01", "practicar")
+    dialogo(s, ["2", "8", "4"])
+    m = s.reply(texto)
+    assert s.step.id == "th_equivalentes" and codigos(s) == []
+    assert "Eso está bien" in m and ("Norton" in m or "Thévenin" in m) and "?" in m
+
+
+@pytest.mark.parametrize("texto", [
+    "serie y paralelo",
+    "Norton va en serie y en paralelo",
+    "Vth en serie con Rth, pero también en paralelo",
+])
+def test_equivalentes_ambiguos_piden_precisar_sin_penalizar(texto):
+    s = sesion("thevenin-01", "practicar")
+    dialogo(s, ["2", "8", "4"])
+    s.reply(texto)
+    assert s.step.id == "th_equivalentes" and codigos(s) == []
+
+
+@pytest.mark.parametrize("texto, equivalente", [
+    ("Vth en serie con Rth e IN en serie con RN", "Norton"),
+    ("IN en serie con RN", "Norton"),
+    ("los dos van en serie", "Norton"),
+    ("Vth en paralelo con Rth", "Thévenin"),
+    ("Thévenin no va en serie", "Thévenin"),
+    ("la fuente de voltaje va en paralelo y la de corriente también", "Thévenin"),
+])
+def test_equivalentes_con_la_conexion_cambiada_dan_el_codigo(texto, equivalente):
+    s = sesion("thevenin-01", "practicar")
+    dialogo(s, ["2", "8", "4"])
+    m = s.reply(texto)
+    assert codigos(s) == ["TH_NORTON_EN_SERIE"] and s.step.id == "th_equivalentes"
+    assert equivalente in m and "{" not in m and "…" not in m
+
+
+def test_equivalentes_sin_relacion_con_la_pregunta_dan_error_conceptual():
+    s = sesion("thevenin-01", "practicar")
+    dialogo(s, ["2", "8", "4", "eso se resuelve con mallas"])
+    assert codigos(s) == ["CONCEPT_WRONG"]
+
+
+def test_equivalentes_corregir_el_error_en_aprender_pide_justificar():
+    s = sesion("thevenin-01")
+    dialogo(s, [INTRO_TH, "2", "porque no se ve ninguna", "8", "4"])
+    s.reply("IN en serie con RN")
+    assert codigos(s) == ["TH_NORTON_EN_SERIE"]
+    s.reply("IN en paralelo con RN y Vth en serie con Rth")
+    assert s.justify_pending is not None and s.step.kind == "verify"
+    s.reply("porque la fuente de corriente comparte los dos nodos con su resistencia")
+    assert s.justify_pending is None and s.c["justificaciones"] == 1
+
+
+def test_thevenin_con_carga_pide_voltaje_y_corriente_con_el_equivalente():
+    s = sesion("thevenin-04", "practicar")
+    dialogo(s, ["5.333", "11.667", "2.1875", "Vth en serie con Rth, IN en paralelo con RN"])
+    assert s.step.kind == "targets"
+    assert "equivalente de Thévenin" in s.pregunta_actual()
+    s.reply("2.1875 V")                                 # Vth·R/Rth: sin sumar la carga a Rth
+    assert codigos(s) == ["DIV_V_RT_INCORRECTA"]
+    s.reply("11.667 V")                                 # el voltaje abierto, sin dividir
+    assert codigos(s) == ["DIV_V_RT_INCORRECTA"] * 2
+    for _ in range(3):
+        s.reply("pista")
+    base = s.ultimo_turno["mensaje_base"]
+    assert s.level == 5 and "Vth = 11.67 V" in base and "Rth = 5.333 Ω" in base and "1.842" not in base
+    s.reply("1.842 V")
+    assert s.step.kind == "targets"
+    m = s.reply("1.842 A")
+    assert s.step.kind == "verify" and "Correcto" in m
+
+
+def test_thevenin_escalera_de_la_carga_nivel_dos_da_la_formula():
+    s = sesion("thevenin-04", "practicar")
+    dialogo(s, ["5.333", "11.667", "2.1875", "Vth en serie con Rth, IN en paralelo con RN"])
+    s.reply("pista")
+    s.reply("pista")
+    assert "Vth · R2/(Rth + R2)" in s.ultimo_turno["mensaje_base"]
+
+
+@pytest.mark.parametrize("texto", [
+    "compruebo que Vth = IN·Rth", "IN = Vth/Rth", "Rth = Vth / IN", "8 = 4·2",
+    "divido el voltaje de Thévenin entre la corriente de Norton",
+    "multiplico IN por Rth y debe dar Vth",
+])
+def test_thevenin_verificacion_acepta_la_relacion_de_los_tres_resultados(texto):
+    s = sesion("thevenin-01", "practicar")
+    dialogo(s, ["2", "8", "4", "Vth en serie con Rth, IN en paralelo con RN"])
+    assert s.step.kind == "verify"
+    s.reply(texto)
+    assert s.step.kind == "metacog" and codigos(s) == [], texto
+
+
+def test_thevenin_el_balance_de_potencias_no_comprueba_el_equivalente():
+    s = sesion("thevenin-01", "practicar")
+    dialogo(s, ["2", "8", "4", "Vth en serie con Rth, IN en paralelo con RN"])
+    m = s.reply("hago el balance de potencias")
+    assert s.step.kind == "verify" and codigos(s) == [] and "no comprueba el equivalente" in m
+    assert s.indicators()["Verificó con balance de potencias"] == "No"
+
+
+def test_thevenin_una_verificacion_vaga_se_marca():
+    s = sesion("thevenin-01", "practicar")
+    dialogo(s, ["2", "8", "4", "Vth en serie con Rth, IN en paralelo con RN", "lo reviso"])
+    assert codigos(s) == ["VERIFY_VAGUE"]
+
+
+def test_thevenin_verificar_reconoce_rth_vth_in_y_la_carga_por_su_valor():
+    s = sesion("thevenin-01", "verificar")
+    m = s.reply("Rth = 2 Ω, Vth = 8 V e IN = 4 A")
+    assert "✔ Rth = 2 Ω" in m and "✔ Vth = 8 V" in m and "✔ IN = 4 A" in m
+    assert s.step.id == "th_equivalentes"
+    s = sesion("thevenin-01", "verificar")
+    m = s.reply("2, 8 y 4")
+    assert "✔ Rth" in m and "✔ Vth" in m and "✔ IN" in m
+    s = sesion("thevenin-04", "verificar")
+    m = s.reply("Rth = 5.333, Vth = 11.667; en R2: V = 1.842 V, I = 1.842 A")
+    assert "✔ Rth" in m and "✔ Vth" in m and "el voltaje en R2" in m and "la corriente en R2" in m
+    assert s.step.id == "th_in"
+
+
+def test_thevenin_verificar_deja_pendiente_lo_que_esta_mal_o_falta():
+    s = sesion("thevenin-03", "verificar")
+    m = s.reply("Vth = 6 V; IN = 5 A")
+    assert "✔ Vth = 6 V" in m and "✔ IN" not in m and "✔ Rth" not in m
+    assert s.step.id == "th_rth"
+
+
+# ----------------------------------------------------------------- la guardia
+def test_forbidden_incluye_rth_vth_in_hasta_que_se_obtienen():
+    s = sesion("thevenin-01", "practicar")
+    assert {2, 8, 4} <= {round(x, 6) for x in s.forbidden_numbers()}
+    s.reply("2")
+    assert 2 not in {round(x, 6) for x in s.forbidden_numbers()}
+    s.reply("8")
+    assert {4} == {round(x, 6) for x in s.forbidden_numbers()}
+    s.reply("4")
+    assert s.forbidden_numbers() == []
+
+
+def test_forbidden_protege_tambien_la_carga_pendiente():
+    s = sesion("thevenin-04", "practicar")
+    prohibidos = s.forbidden_numbers()
+    for valor in (5.3333, 11.6667, 2.1875, 1.8421):
+        assert any(abs(valor - p) < 1e-3 for p in prohibidos), valor
+    dialogo(s, ["5.333", "11.667", "2.1875", "Vth en serie con Rth, IN en paralelo con RN"])
+    assert [round(x, 3) for x in s.forbidden_numbers()] == [1.842, 1.842]
+    s.reply("1.842 V")
+    assert [round(x, 3) for x in s.forbidden_numbers()] == [1.842]
+
+
+def test_la_guardia_rechaza_decir_rth_vth_o_in_antes_de_tiempo():
+    s = sesion("thevenin-01", "practicar")
+    conocidos = {float(e.value) for e in s.circuit.elements}
+
+    def dicho(frase):
+        base = s.pregunta_actual()
+        return guard(frase + " " + base, base, s.forbidden_numbers(), [], False, [], conocidos)
+
+    assert dicho("La resistencia de Thévenin es de 2 Ω.") == (False, "filtra un resultado")
+    s.reply("2")
+    assert dicho("La resistencia de Thévenin es de 2 Ω.")[1] != "filtra un resultado"
+    assert dicho("El voltaje de Thévenin sale de 8 V.") == (False, "filtra un resultado")
+    s.reply("8")
+    assert dicho("La corriente de Norton es de 4 A.") == (False, "filtra un resultado")
+
+
+# ------------------------------------------------------------------- confianza
+def test_los_pasos_de_thevenin_piden_confianza():
+    nuevos = {"th_vth", "th_in", "th_equivalentes"}
+    assert nuevos <= CONFIANZA_KINDS and nuevos <= set(PASOS_CON_CONFIANZA)
+    assert set(PASOS_CON_CONFIANZA) <= CONFIANZA_KINDS
+    s = sesion("thevenin-01")
+    s.reply(INTRO_TH)
+    assert s.step.id == "th_rth" and s.pide_confianza("2")
+    dialogo(s, ["2"])
+    assert s.step.id == "th_vth" and s.pide_confianza("8 V")
+    s.reply("8 V")
+    assert s.step.id == "th_in" and s.pide_confianza("4 A")
+    s.reply("4 A")
+    assert s.step.id == "th_equivalentes" and s.pide_confianza("Thévenin en serie, Norton en paralelo")
+
+
+# ------------------------------------------------------------------ reanudación
+def _guion_th(pid, modo):
+    """Una sesión de Thévenin con errores, para cortarla en cada turno y reconstruirla."""
+    s = sesion(pid, modo)
+    guion = []
+    errores = {
+        "thevenin-01": ["6", "24 V", "IN en serie con RN"],
+        "thevenin-02": ["1.2", "no sé", "-8 V"],
+        "thevenin-03": ["quito la fuente", "-1.5 A"],
+        "thevenin-04": ["pongo la fuente de corriente en corto", "2.1875 V"],
+    }[pid]
+    for malo in errores:
+        if s.finished:
+            break
+        guion.append(malo)
+        s.reply(malo)
+        for _ in range(3):
+            if s.finished:
+                break
+            texto = correct_answer(s)
+            guion.append(texto)
+            s.reply(texto)
+    for _ in range(80):
+        if s.finished:
+            break
+        texto = correct_answer(s)
+        guion.append(texto)
+        s.reply(texto)
+    assert s.finished
+    return guion
+
+
+@pytest.mark.parametrize("modo", list(MODES))
+@pytest.mark.parametrize("pid", ["thevenin-01", "thevenin-02", "thevenin-03", "thevenin-04"])
+def test_reconstruir_thevenin_cortada_en_cualquier_turno_queda_igual(pid, modo):
+    guion = _guion_th(pid, modo)
+    p = banco(pid)
+    original = Session(p.circuit, p.method, modo)
+    original.start()
+    for corte, texto in enumerate(guion):
+        original.reply(texto)
+        copia = reconstruir(p.circuit, p.method, modo, guion[:corte + 1])
+        assert _estado(copia) == _estado(original), (pid, modo, corte)
+        assert copia.th_sentido_in == original.th_sentido_in
+
+
+# ---------------------------------------------------------------------- banco
+NUEVOS_TH = ["TH_FUENTES_ENCENDIDAS", "TH_NORTON_EN_SERIE"]
+
+
+@pytest.mark.parametrize("codigo", NUEVOS_TH)
+def test_cada_codigo_de_thevenin_tiene_todas_sus_columnas(codigo):
+    e = ErrorBank().get(codigo)
+    assert e is not None and e.descripcion and e.verificacion and e.metacognitiva
+    assert all(e.niveles[n] for n in (1, 2, 3, 4)) and e.modulo == "thevenin"
+
+
+def test_los_dos_codigos_de_thevenin_se_producen_en_los_dialogos():
+    vistos = set()
+    s = sesion("thevenin-02", "practicar")
+    dialogo(s, ["1.2"])
+    vistos |= set(codigos(s))
+    s = sesion("thevenin-01", "practicar")
+    dialogo(s, ["2", "8", "4", "IN en serie con RN"])
+    vistos |= set(codigos(s))
+    assert set(NUEVOS_TH) <= vistos
+
+
+@pytest.mark.parametrize("modo", list(MODES))
+def test_thevenin_el_error_de_las_fuentes_se_detecta_en_los_cuatro_modos(modo):
+    s = sesion("thevenin-02", modo)
+    mensajes = ["Rth = 1.2 Ω"] if modo == "verificar" else ["1.2"]
+    if modo in ("aprender", "simulador"):
+        mensajes = [INTRO_TH] + mensajes
+    dialogo(s, mensajes)
+    if modo == "verificar":                              # sólo reconoce lo correcto: lo demás se pregunta
+        assert codigos(s) == [] and s.step.id == "th_rth"
+    else:
+        assert codigos(s) == ["TH_FUENTES_ENCENDIDAS"] and s.step.id == "th_rth"
+
+
+def test_los_textos_de_ayuda_de_thevenin_no_dejan_marcadores_sin_llenar():
+    s = sesion("thevenin-02", "practicar")
+    for _ in range(5):
+        texto = s.reply("1.2")
+        assert "…" not in texto and "{" not in texto
+    s = sesion("thevenin-01", "practicar")
+    dialogo(s, ["2", "8", "4"])
+    for _ in range(5):
+        texto = s.reply("IN en serie con RN")
+        assert "…" not in texto and "{" not in texto
+
+
+# ------------------------------------------------------------- interfaz y banco
+def test_thevenin_esta_en_la_lista_de_temas_de_la_interfaz():
+    assert TOPICS["thevenin"] == "Thévenin y Norton"
+    assert {p.topic for p in BANK.values()} <= set(TOPICS)
+    assert _describe(banco("thevenin-01"))["topicName"] == "Thévenin y Norton"
+    assert PASOS_ANOTADOS["th_equivalentes"] == "concepto"
+
+
+@pytest.mark.parametrize("pid", ["thevenin-01", "thevenin-02", "thevenin-03", "thevenin-04"])
+def test_los_problemas_de_thevenin_traen_fuente_respuesta_e_imagen(pid):
+    p = banco(pid)
+    assert p.source and p.expected and p.image and p.method == "thevenin" and p.topic == "thevenin"
+    assert "Material de clase" in p.source and "Thévenin" in p.source
+    assert set(p.expected) >= {"Rth", "Vth"}
+
+
+def test_los_problemas_de_thevenin_traen_las_respuestas_publicadas():
+    esperado = {"thevenin-01": (2, 8, 4), "thevenin-02": (2, 8, 4), "thevenin-03": (4, 6, 1.5)}
+    for pid, (rth, vth, i_n) in esperado.items():
+        p = banco(pid)
+        assert (p.expected["Rth"], p.expected["Vth"], p.expected["IN"]) == (rth, vth, i_n)
+    p = banco("thevenin-04")
+    assert p.expected["Rth"] == 5.333 and p.expected["Vth"] == 11.666
+    assert p.expected["V R2"] == p.expected["I R2"] == 1.842
+    assert "pp. 37–38" in p.source and "p. 36" in p.source
+
+
+def test_la_serie_04_sigue_igual():
+    p = banco("serie-04")
+    assert p.method == "serie_paralelo" and [t.quantity for t in p.circuit.targets] == ["Req", "V"]
+
+
+def test_con_el_corto_el_ejemplo_2_deja_pasar_toda_la_corriente_de_la_fuente():
+    c = banco("thevenin-02").circuit
+    assert corriente_corto(c, "A", "0") == c.get("I1").value
+
+
+# ----------------------------------------------------------------- los dibujos
+@pytest.mark.parametrize("pid", ["thevenin-01", "thevenin-02", "thevenin-03", "thevenin-04"])
+def test_los_dibujos_de_thevenin_marcan_las_terminales_en_los_nodos_correctos(pid):
+    dibujos = pytest.importorskip("tools.dibujos")
+    p = banco(pid)
+    spec = dibujos.DIBUJOS[p.id]
+    dibujos.check(p.id, spec, p.circuit)               # mismos elementos, nodos y polaridades que la tabla
+    terminales = {t[0]: t[1] for t in spec["terminales"]}
+    assert set(terminales) == {"A", "B"}
+    objetivo = p.circuit.targets[0]
+    if objetivo.element:
+        carga = p.circuit.get(objetivo.element)
+        esperado = {"A": carga.n1, "B": carga.n2}
+    else:
+        esperado = {"A": objetivo.nodes[0], "B": objetivo.nodes[1]}
+    assert {k: dibujos.node_at(spec, v) for k, v in terminales.items()} == {k: [v] for k, v in esperado.items()}
+    svg = (RAIZ_PROBLEMAS / p.image).read_text(encoding="utf-8")
+    assert svg.count(">A<") == 1 and svg.count(">B<") == 1
+
+
+def test_una_duda_de_teoria_en_los_pasos_de_concepto_se_atiende_como_pista():
+    from escritorio.config import PASOS_DE_CONCEPTO
+    # la ficha del tema trae la respuesta de estos pasos: se dan como pista y se anotan como concepto
+    assert set(PASOS_DE_CONCEPTO) == {"concept", "sup_apagar", "th_equivalentes"}
+    assert all(PASOS_ANOTADOS[k] == "concepto" for k in PASOS_DE_CONCEPTO)

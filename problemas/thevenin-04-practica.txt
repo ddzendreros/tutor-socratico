@@ -1,0 +1,18 @@
+TITULO: Thévenin y Norton · Práctica (la carga es R2)
+TEMA: thevenin
+METODO: thevenin
+NIVEL: avanzado
+FUENTE: Material de clase, Tema 6 (Thévenin y Norton), ejemplo de práctica, p. 36; solución por Thévenin, pp. 37–38
+IMAGEN: thevenin-04-practica.svg
+ENUNCIADO: Una fuente de corriente de 2 A sube por la rama izquierda hacia R1 = 2 Ω. R2 = 1 Ω y R3 = 6 Ω forman la columna central, R4 = 8 Ω va de su unión al nodo de la derecha, R5 = 10 Ω baja de ese nodo al riel inferior y una fuente de 5 V (con el + arriba) une la parte superior con ese nodo. Toma R2 como la carga: encuentra el equivalente de Thévenin y Norton que ve R2 y, con él, el voltaje y la corriente en R2.
+PIDE: TH R2; V R2; I R2
+RESPUESTA: Rth=5.333 Vth=11.666 V R2=1.842 I R2=1.842
+NOTA: (para el profesor) La diapositiva pide además resolver el mismo problema por Norton (p. 38) y no publica el resultado; el equivalente de Norton que ve R2 es IN = 35/16 A con RN = 16/3 Ω.
+
+IX 0 tl 2
+R1 tl a 2
+R2 a b 1
+VX a c 5
+R3 b 0 6
+R4 b c 8
+R5 c 0 10

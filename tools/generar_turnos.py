@@ -7,11 +7,13 @@ alumno hasta ese momento, para reconstruir la sesión con `reconstruir()` y
 obtener del motor el contexto de la guardia al evaluar.
 
 Uso: python -m tools.generar_turnos
+     python -m tools.generar_turnos --agregar thevenin    # añade al final los turnos de esos problemas
 """
 from __future__ import annotations
 
 import json
 import re
+import sys
 from pathlib import Path
 
 from tests.test_flow import correct_answer  # el recorrido correcto que ya usan las pruebas
@@ -80,11 +82,11 @@ def recorrer(problema, modo: str, guion: list[str] | None = None) -> list[dict]:
     return turnos
 
 
-def elegir(sesiones: list[list[dict]]) -> list[dict]:
+def elegir(sesiones: list[list[dict]], cuotas: dict[str, int] = CUOTAS, vistos: set[str] | None = None) -> list[dict]:
     """Toma de cada tipo su cuota, un turno por sesión a la vez y sin repetir mensajes base,
     para repartirlos entre problemas y modos."""
-    elegidos, vistos = [], set()
-    for tipo, cuota in CUOTAS.items():
+    elegidos, vistos = [], set(vistos or ())
+    for tipo, cuota in cuotas.items():
         colas = [[t for t in turnos if t["tipo"] == tipo] for turnos in sesiones]
         tomados = 0
         while tomados < cuota and any(colas):
@@ -99,7 +101,27 @@ def elegir(sesiones: list[list[dict]]) -> list[dict]:
     return elegidos
 
 
+def agregar(prefijos: list[str]) -> None:
+    """Añade al final del archivo los turnos de los problemas nuevos, sin tocar los que ya hay."""
+    with open(SALIDA, encoding="utf-8") as f:
+        existentes = [json.loads(linea) for linea in f if linea.strip()]
+    banco = [p for p in sorted(load_bank(), key=lambda p: p.id) if any(p.id.startswith(x) for x in prefijos)]
+    modos = list(MODES)
+    sesiones = [recorrer(p, modos[(i + j) % len(modos)]) for i, p in enumerate(banco) for j in range(2)]
+    n = len(banco)
+    nuevos = elegir(sesiones, {"error": 2 * n, "ayuda": n, "acierto": 2 * n}, {t["base"] for t in existentes})
+    faltan = {p.id for p in banco} - {t["problema"] for t in nuevos}
+    if faltan:
+        raise SystemExit(f"sin turnos para: {', '.join(sorted(faltan))}")
+    with open(SALIDA, "a", encoding="utf-8") as f:
+        for t in nuevos:
+            f.write(json.dumps(t, ensure_ascii=False) + "\n")
+    print(f"{len(nuevos)} turnos añadidos a {SALIDA}")
+
+
 def main() -> None:
+    if len(sys.argv) > 2 and sys.argv[1] == "--agregar":
+        return agregar(sys.argv[2:])
     banco = sorted(load_bank(), key=lambda p: p.id)
     modos = list(MODES)
     # cada vuelta recorre los 12 problemas, cada uno en un modo distinto

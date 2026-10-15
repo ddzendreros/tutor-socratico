@@ -23,7 +23,7 @@ from tutor.problems import load_bank, parse_problem
 from escritorio import __version__, equipo
 from escritorio.alumnos import es_valido, formatear, normalizar
 from escritorio.config import (ANOTACION_REPOSO, INACTIVIDAD_MIN, INTERVALO_LATIDO, MODELO_ARCHIVO,
-                               PASOS_CON_CONFIANZA, VELOCIDAD_ESCRITURA_CPS)
+                               PASOS_CON_CONFIANZA, PASOS_DE_CONCEPTO, VELOCIDAD_ESCRITURA_CPS)
 from escritorio.conversacion import Conversador, contexto_guardia, plantilla_para_intencion
 from escritorio.modelo import ServidorModelo
 from escritorio.cifrado import caja_estado, leer_llave_publica
@@ -41,6 +41,7 @@ TOPICS = {
     "nodos": "Método de nodos",
     "divisor": "Divisor de voltaje y corriente",
     "superposicion": "Superposición",
+    "thevenin": "Thévenin y Norton",
 }
 
 # intenciones que se contestan con una plantilla sin que el motor evalúe nada
@@ -53,10 +54,8 @@ MOTIVOS_SALIDA = {"boton", "inactividad", "cierre", "cambio"}
 MAX_EVENTOS_COMPOSICION = 5000
 
 # respuestas abiertas que el modelo anota con la rúbrica, sólo como dato
-PASOS_ANOTADOS = {"concept": "concepto", "sup_apagar": "concepto", "verify": "verificacion",
-                  "metacog": "metacognicion"}
-# pasos cuya pregunta la responde la ficha de teoría: la duda se atiende como pista
-PASOS_DE_CONCEPTO = ("concept", "sup_apagar")
+PASOS_ANOTADOS = {"concept": "concepto", "sup_apagar": "concepto", "th_equivalentes": "concepto",
+                  "verify": "verificacion", "metacog": "metacognicion"}
 IDEAS_ESPERADAS = {
     "verificacion": ("Una forma concreta de comprobar los resultados: balance de potencias (PE = PC), sustituir "
                      "los valores en las ecuaciones originales (LVK o LCK) o medir en un simulador."),

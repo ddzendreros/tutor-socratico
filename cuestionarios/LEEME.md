@@ -46,7 +46,7 @@ P4 | numero | ¿Cuántas horas a la semana estudias la materia?
 | `manual` | nunca por sí solo; queda reservado |
 
 Los temas son los del campo `TEMA` del banco de problemas: hoy `ohm`, `serie_paralelo`, `mallas`,
-`nodos`, `divisor` y `superposicion`. Un tema que no está en el banco es un error.
+`nodos`, `divisor`, `superposicion` y `thevenin`. Un tema que no está en el banco es un error.
 
 - Se contesta una pregunta a la vez, en orden, y no se puede saltar ni volver. Mientras haya un
   cuestionario a medias no se puede abrir ningún problema; si el alumno cierra el programa, lo

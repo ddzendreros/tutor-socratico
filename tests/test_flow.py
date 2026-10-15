@@ -173,6 +173,11 @@ def correct_answer(s):
 
     if s.justify_pending is not None:
         return "porque las corrientes van en sentidos opuestos en esa rama"
+    if k == "submit" and s.method == "thevenin":
+        parts = [f"Rth = {g(s.th['rth'])} ohm", f"Vth = {g(s.th['vth'])} V", f"IN = {g(s.th['in'])} A"]
+        parts += [f"{t.quantity} = {g(abs(v))} {'A' if t.quantity == 'I' else 'V'}"
+                  for t, v in zip(s.targets, s.target_truth)]
+        return "\n".join(parts)
     if k == "submit":
         units = {"I": "A", "V": "V", "P": "W"}
         parts = [eq(i) for i in range(len(s.refs))] + ([vals(s.vars)] if s.vars else [])
@@ -180,6 +185,8 @@ def correct_answer(s):
         parts += [f"{t.quantity} = {g(abs(v))} {units.get(t.quantity, '')}"
                   for t, v in zip(s.targets, s.target_truth)]
         return "\n".join(parts)
+    if k == "reduce" and s.method == "thevenin" and not s.reducer.moves():
+        return f"Rth = {g(s.reducer.req)} ohm"
     if k == "reduce":
         mv = s.reducer.moves()[0]
         names = [display(n) for n in mv.members]
@@ -188,6 +195,14 @@ def correct_answer(s):
         return "planteo mallas del circuito completo, con todas las fuentes encendidas, y comparo"
     if k == "verify" and s.method == "divisor":
         return "sumo los voltajes y las corrientes de las partes y deben dar el total de la fuente"
+    if k == "th_vth":
+        return f"Vth = {g(s.th['vth'])} V"
+    if k == "th_in":
+        return f"IN = {g(s.th['in'])} A"
+    if k == "th_equivalentes":
+        return "Thévenin: Vth en serie con Rth; Norton: IN en paralelo con RN"
+    if k == "verify" and s.method == "thevenin":
+        return "compruebo que Vth = IN·Rth"
     if k == "sup_casos":
         return str(len(s.sup_fuentes))
     if k == "sup_apagar":

@@ -1,0 +1,14 @@
+TITULO: Thévenin y Norton · Ejemplo 2 (fuente de corriente)
+TEMA: thevenin
+METODO: thevenin
+NIVEL: básico
+FUENTE: Material de clase, Tema 6 (Thévenin y Norton), Ejemplo 2, pp. 24–27
+IMAGEN: thevenin-02-ejemplo-2.svg
+ENUNCIADO: Una fuente de corriente de 4 A sube hacia R1 = 3 Ω, que va a la terminal A. R2 = 2 Ω está entre A y B; la terminal B es el riel inferior (nodo 0). Encuentra el circuito equivalente de Thévenin y el de Norton entre A y B.
+PIDE: TH A-0
+RESPUESTA: Rth=2 Vth=8 IN=4
+NOTA: (para el profesor) Al abrir la fuente de corriente, R1 queda con una terminal suelta y no se toma en cuenta, como dice la diapositiva (p. 25). Vth sale con la Ley de Ohm en R2 y, con el corto entre A y B, R2 se elimina y pasa toda la corriente de la fuente.
+
+I1 0 x 4
+R1 x A 3
+R2 A 0 2

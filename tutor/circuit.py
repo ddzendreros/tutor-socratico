@@ -83,12 +83,16 @@ class Element:
 @dataclass
 class Target:
     """Magnitud que pide el problema."""
-    quantity: str  # "I" corriente, "V" voltaje, "P" potencia, "Req"
+    quantity: str  # "I" corriente, "V" voltaje, "P" potencia, "Req", "TH" equivalente Thévenin/Norton
     element: str | None = None
-    nodes: tuple[str, str] | None = None  # para Req entre dos nodos
+    nodes: tuple[str, str] | None = None  # para Req y TH entre dos nodos
 
     def describe(self) -> str:
         names = {"I": "la corriente en", "V": "el voltaje en", "P": "la potencia en"}
+        if self.quantity == "TH":
+            if self.element:
+                return f"el equivalente de Thévenin y Norton que ve {self.element}"
+            return f"el equivalente de Thévenin y Norton entre {self.nodes[0]} y {self.nodes[1]}"
         if self.quantity == "Req":
             if self.element:
                 return f"la resistencia equivalente que ve {self.element}"

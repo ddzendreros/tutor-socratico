@@ -12,6 +12,7 @@ from pathlib import Path
 from tutor.engine import MODES, Session
 from tutor.problems import load_bank
 from tutor.llm import LLM
+from escritorio.config import PASOS_DE_CONCEPTO
 from escritorio.conversacion import Conversador, contexto_guardia, plantilla_para_intencion
 from escritorio.modelo import ServidorModelo
 
@@ -120,7 +121,7 @@ def main() -> int:
                 else:
                     intencion = "respuesta"
             # en un paso de concepto la ficha contiene la respuesta: la duda se atiende como pista
-            if intencion == "pregunta_teoria" and sesion.step.kind in ("concept", "sup_apagar"):
+            if intencion == "pregunta_teoria" and sesion.step.kind in PASOS_DE_CONCEPTO:
                 intencion = "ayuda"
 
             if intencion == "ayuda":
