@@ -219,6 +219,9 @@ def correct_answer(s):
         pc = s._power_totals()
         return f"PE = {g(pc)} W y PC = {g(pc)} W" if st.data.get("balance") else "con el balance de potencias"
     if k == "sim":
+        if s.method == "thevenin":                        # el equivalente y, si hay carga, sus resultados
+            return ", ".join([f"Vth = {g(s.th['vth'])} V", f"IN = {g(s.th['in'])} A"]
+                             + [g(abs(v)) for v in s.target_truth])
         if s.vars:
             return vals(s.vars)
         if s.targets:

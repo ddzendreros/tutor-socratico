@@ -164,6 +164,38 @@ def test_numbers_parsing():
     assert (got[-1].var, got[-1].value) == ("V1", -2.5)
 
 
+@pytest.mark.parametrize("texto, esperado", [
+    ("Vth = 35/3", [("Vth", 35 / 3, None)]),
+    ("IN = 35/16 A", [("IN", 35 / 16, "A")]),
+    ("V = -35/3 V", [("V", -35 / 3, "V")]),
+    ("Vth vale 35/3 V", [("Vth", 35 / 3, "V")]),            # sin "=" también es un solo valor
+    ("Rth = 3*6/(3+6) Ω", [("Rth", 2, None)]),            # una cuenta sin resultado vale su resultado
+    ("Vth = 12(6)/(3+6) V", [("Vth", 8, "V")]),
+    ("I = 12/(3+6) mA", [("I", 12 / 9 / 1000, "A")]),
+])
+def test_numbers_parsing_reads_fractions_and_unfinished_operations(texto, esperado):
+    got = [(g.var, g.value, g.unit) for g in parse_numbers(texto)]
+    assert [(v, pytest.approx(x), u) for v, x, u in esperado] == got
+
+
+@pytest.mark.parametrize("texto, esperado", [
+    ("Vth = 12*6/9 = 8 V", [12, 6, 9, 8]),                 # ya trae el resultado: se lee como antes
+    ("R2: 30*60/90", [30, 60, 90]),                        # la diagonal es parte de la cuenta
+    ("6 * 3/9", [6, 3, 9]),
+    ("I1 = 10 - 2 I2", [10, -2]),                          # una ecuación, no una cuenta
+    ("x = 1/0", [1, 0]),
+    ("x = 9**9**9", [9, 9, 9]),                            # una potencia así no termina: no se evalúa
+    ("Rth = 6//3", [6, 3]),                                # "//" es paralelo, no división entera
+])
+def test_numbers_parsing_leaves_operations_with_result_and_equations_alone(texto, esperado):
+    assert [g.value for g in parse_numbers(texto)] == esperado
+
+
+def test_numbers_parsing_can_keep_the_factors_of_an_operation():
+    assert [g.value for g in parse_numbers("8 = 4·2")] == [8, 8]
+    assert [g.value for g in parse_numbers("8 = 4·2", evaluar=False)] == [8, 4, 2]
+
+
 @pytest.mark.parametrize("eq", ["I1 + I2 = 5", "I = V/R", "E + V1 = 3", "V1 = sqrt(-1)", "V1 = 1e400"])
 def test_unknown_names_and_bad_numbers_are_parse_errors(eq):
     # en nodos, 'I1' no es incógnita: SymPy lo leería como I*1 (número imaginario)

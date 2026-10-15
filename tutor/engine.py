@@ -71,10 +71,13 @@ _NEGACION_RE = re.compile(r"\b(no|nunca|ni)\b", re.I)
 _QUITAR_RE = re.compile(r"\b(quit|elimin|retir|apag|desactiv|sac)\w*", re.I)
 
 # equivalentes de Thévenin y Norton: de cuál habla una cláusula y cómo conecta su fuente con su resistencia
+# "una fuente de 8 V" o "la de 4 A": la unidad dice de qué equivalente habla
 _TH_SUJETO_RE = re.compile(r"th[eé]venin|\b[vr]\s*_?\s*th\b|bater[ií]a|fuente\s+de\s+(voltaje|tensi[oó]n)|"
-                           r"\bde\s+voltaje\b|\bel\s+de\s+v\b|\bfuente\s+v\b", re.I)
+                           r"\bde\s+voltaje\b|\bel\s+de\s+v\b|\bfuente\s+v\b|"
+                           r"\b(fuente|la)\s+de\s+[\d.,]+\s*k?\s*(v|volts?|voltios?)\b", re.I)
 _NO_SUJETO_RE = re.compile(r"norton|\bi\s*_?\s*n\b|\br\s*_?\s*n\b|fuente\s+de\s+corriente|\bde\s+corriente\b|"
-                           r"\bel\s+de\s+i\b|\bfuente\s+i\b", re.I)
+                           r"\bel\s+de\s+i\b|\bfuente\s+i\b|"
+                           r"\b(fuente|la)\s+de\s+[\d.,]+\s*m?\s*(a|amperes?|amperios?|amps?)\b", re.I)
 _TH_VTH = {"vth", "vab", "vca", "voc", "vt"}
 _TH_RTH = {"rth", "rab", "rn", "req"}
 _TH_IN = {"in", "iab", "icc", "isc"}
@@ -273,16 +276,33 @@ class Session:
         if rth <= 0:
             raise CircuitError(f"Entre {a} y {b} no hay resistencia: las terminales quedan en corto.")
         self.th = {"a": a, "b": b, "carga": carga, "vth": vth, "rth": rth, "in": i_n}
+        self.th["na"], self.th["nb"] = self._th_nombres(a, b)
         self.req_target = t
         self.targets = [x for x in self.targets if x is not t]
         self.reducer = Reducer(apagar_fuentes(sin_elemento(c, carga), None), a, b)
         self.th["sueltas"] = sorted(self.reducer.removed)
 
+    def _th_nombres(self, a: str, b: str) -> tuple[str, str]:
+        """Las terminales como las nombran el enunciado y el dibujo: A y B aunque B sea el riel (nodo 0)."""
+        if {a.lower(), b.lower()} == {"a", "b"}:
+            return a.upper(), b.upper()
+        enunciado = self.circuit.statement or ""
+        if a.lower() == "a" and b == "0" and re.search(r"(?<![A-Za-z])B(?![A-Za-z])", enunciado):
+            return "A", "B"
+        return a, b
+
+    def _th_pedido(self) -> str:
+        """El equivalente que pide el problema, con los nombres del enunciado."""
+        a, b, carga = self.th["na"], self.th["nb"], self.th["carga"]
+        if carga:
+            return f"el equivalente de Thévenin y Norton que ve {carga} (entre {a} y {b})"
+        return f"el equivalente de Thévenin y Norton entre {a} y {b}"
+
     def _th_terminales(self) -> str:
         """Cómo se nombran las terminales en las preguntas."""
-        a, b, carga = self.th["a"], self.th["b"], self.th["carga"]
+        a, b, carga = self.th["na"], self.th["nb"], self.th["carga"]
         if carga:
-            return f"las terminales de {carga} (nodos {a} y {b}; {carga} se retira)"
+            return f"las terminales {a} y {b} de {carga} ({carga} se retira)"
         return f"las terminales {a} y {b}"
 
     def _th_nota_sueltas(self) -> str:
@@ -600,11 +620,11 @@ class Session:
             return (f"Ahora superpón los efectos: ¿cuánto vale {t.describe()} (en {target_unit(t)}) con "
                     "todas las fuentes encendidas? Suma algebraica de los casos, respetando el sentido de cada uno.")
         if k == "th_vth":
-            a, b = self.th["a"], self.th["b"]
+            a, b = self.th["na"], self.th["nb"]
             return (f"Ahora el voltaje de Thévenin: con las fuentes encendidas y {self._th_terminales()} "
-                    f"abiertas, ¿cuánto vale V_AB = V_{a} − V_{b} (Vth, en volts)?")
+                    f"abiertas, ¿cuánto vale V_{a}{b} = V_{a} − V_{b} (Vth, en volts)?")
         if k == "th_in":
-            a, b = self.th["a"], self.th["b"]
+            a, b = self.th["na"], self.th["nb"]
             return (f"Ahora la corriente de Norton: con las fuentes encendidas, coloca un cortocircuito entre "
                     f"{a} y {b}. ¿Cuánto vale la corriente por el corto, de {a} a {b} (IN, en amperes)?")
         if k == "th_equivalentes":
@@ -652,6 +672,10 @@ class Session:
                     "correcta. ¿Cómo podrías comprobar estos resultados?")
         if k == "sim":
             what = ", ".join(self.vars) if self.vars else ", ".join(t.describe() for t in self.targets)
+            if self.method == "thevenin":
+                a, b = self.th["na"], self.th["nb"]
+                what = ", ".join([f"Vth (entre {a} y {b}, con las terminales abiertas)",
+                                  f"IN (por un corto entre {a} y {b})"] + [t.describe() for t in self.targets])
             return (f"Construye ahora el circuito en PhET o Multisim, mide {what} y dime qué valores "
                     f"obtuviste.")
         if k == "metacog":
@@ -685,9 +709,9 @@ class Session:
             return ("Convención: analiza cada fuente sola, con las demás apagadas, y usa la misma referencia "
                     "en todos los casos; lo que vaya en sentido contrario lleva signo negativo.")
         if self.method == "thevenin":
-            a, b, carga = self.th["a"], self.th["b"], self.th["carga"]
+            a, b, carga = self.th["na"], self.th["nb"], self.th["carga"]
             retirada = f" La carga {carga} se retira para calcular el equivalente." if carga else ""
-            return (f"Convención: Vth = V_AB = V_{a} − V_{b}, con las terminales abiertas y las fuentes encendidas; "
+            return (f"Convención: Vth = V_{a}{b} = V_{a} − V_{b}, con las terminales abiertas y las fuentes encendidas; "
                     f"IN es la corriente de {a} a {b} por un corto entre ellas; Rth = RN se obtiene con las "
                     f"fuentes apagadas (voltaje en corto, corriente abierta).{retirada}")
         return ""
@@ -726,12 +750,13 @@ class Session:
         item = step.pending[0] if step.pending else None
         B, N = len(c.elements), len(c.nodes)
         if k == "intro":
+            pedido = ([self._th_pedido()] if self.th else []) + [t.describe() for t in self.targets]
             return {1: "¿Qué valores conoces (fuentes, resistencias) y cuál es la incógnita que pide el problema?",
                     2: "Separa datos de incógnitas: los datos son los valores dados; la incógnita es lo que te piden calcular.",
                     3: "Haz una lista: fuentes con su valor, resistencias con su valor y, al final, lo que te piden.",
                     4: f"Los datos son: {', '.join(e.label for e in c.elements)}. ¿Qué te piden encontrar?",
                     5: f"Datos: {', '.join(e.label for e in c.elements)}. Incógnita: "
-                       f"{', '.join(t.describe() for t in self.targets) or 'las corrientes/voltajes del circuito'}."
+                       f"{', '.join(pedido) or 'las corrientes/voltajes del circuito'}."
                        " ¿Con qué empezarías?"}[level]
         if k == "mesh_count":
             return self.bank.text("MESH_COUNT_WRONG", level, B=B, N=N) if level <= 4 else \
@@ -925,34 +950,37 @@ class Session:
                     4: "Toma un sentido como positivo; los casos que vayan en sentido contrario llevan signo "
                        "negativo. Suma todos los casos, sin dejar fuera ninguna fuente."}[level]
         if k == "th_vth":
+            a, b = self.th["na"], self.th["nb"]
             return {1: "Con las terminales abiertas, ¿pasa corriente por ellas? ¿Qué voltaje te piden y entre qué "
                        "puntos?",
-                    2: "V_AB es el voltaje que tiene el circuito original entre las terminales abiertas, con las "
-                       "fuentes encendidas: V_AB = V_A − V_B. Puedes obtenerlo con divisor de voltaje, Ley de Ohm, "
+                    2: f"V_{a}{b} es el voltaje que tiene el circuito original entre las terminales abiertas, con "
+                       f"las fuentes encendidas: V_{a}{b} = V_{a} − V_{b}. Puedes obtenerlo con divisor de voltaje, Ley de Ohm, "
                        "mallas o nodos, según el circuito.",
-                    3: "Mira qué hay entre las terminales: si es una resistencia, V_AB es su voltaje. ¿Qué corriente "
+                    3: f"Mira qué hay entre las terminales: si es una resistencia, V_{a}{b} es su voltaje. ¿Qué corriente "
                        "pasa por ella con las terminales abiertas?",
-                    4: "Obtén la corriente de la resistencia que queda entre A y B (con la Ley de Ohm, un divisor o "
+                    4: f"Obtén la corriente de la resistencia que queda entre {a} y {b} (con la Ley de Ohm, un divisor o "
                        "mallas) y calcula su voltaje con V = I·R; revisa cuál terminal es la positiva.",
-                    5: "Si hay más de un camino, plantea LVK en el lazo que pasa por A y B: V_AB = (suma de los voltajes "
-                       "de los elementos entre A y B, con su signo). Haz tú las operaciones."}[level]
+                    5: f"Si hay más de un camino, plantea LVK en el lazo que pasa por {a} y {b}: V_{a}{b} = (suma de "
+                       f"los voltajes de los elementos entre {a} y {b}, con su signo). Haz tú las operaciones."}[level]
         if k == "th_in":
-            return {1: "Si pones un corto entre A y B, ¿qué voltaje queda entre ellas? ¿Qué pasa con una resistencia "
-                       "que esté conectada directamente entre A y B?",
-                    2: "La corriente de Norton es la que pasa por el corto entre A y B (IN = I_AB). Una resistencia "
-                       "en paralelo con el corto no conduce corriente: se elimina.",
-                    3: "Con el corto puesto y las fuentes encendidas, calcula la corriente que llega a A y pasa por "
+            a, b = self.th["na"], self.th["nb"]
+            return {1: f"Si pones un corto entre {a} y {b}, ¿qué voltaje queda entre ellas? ¿Qué pasa con una "
+                       f"resistencia que esté conectada directamente entre {a} y {b}?",
+                    2: f"La corriente de Norton es la que pasa por el corto entre {a} y {b} (IN = I_{a}{b}). Una "
+                       "resistencia en paralelo con el corto no conduce corriente: se elimina.",
+                    3: f"Con el corto puesto y las fuentes encendidas, calcula la corriente que llega a {a} y pasa por "
                        "el corto: con la Ley de Ohm, un divisor de corriente o mallas.",
                     4: "Si usas mallas, una de ellas pasa por el corto; si usas un divisor, el corto es una rama de "
                        "0 Ω. ¿Qué corriente lleva?",
-                    5: "IN es la corriente de A a B por el corto. Calcúlala directamente en el circuito con el corto "
+                    5: f"IN es la corriente de {a} a {b} por el corto. Calcúlala directamente en el circuito con el corto "
                        "puesto; después la comprobaremos con Vth y Rth."}[level]
         if k == "th_equivalentes":
             return {1: "Recuerda cómo se ve cada equivalente: ¿qué elementos lo forman y cómo se conectan entre sí?",
                     2: "El de Thévenin es una fuente de voltaje con una resistencia; el de Norton, una fuente de "
                        "corriente con una resistencia. La diferencia está en cómo se conectan.",
                     3: "En el de Thévenin la resistencia está en serie con la fuente de voltaje (un solo camino); "
-                       "en el de Norton, en paralelo con la fuente de corriente (los mismos dos nodos, A y B).",
+                       f"en el de Norton, en paralelo con la fuente de corriente (los mismos dos nodos, "
+                       f"{self.th['na']} y {self.th['nb']}).",
                     4: "Si Thévenin es una fuente de voltaje en serie con Rth, ¿cómo conectarías la fuente de "
                        "corriente IN con RN en el de Norton?",
                     5: f"Thévenin: Vth ({fmt(self.th['vth'])} V) en serie con Rth ({fmt(self.th['rth'])} Ω). "
@@ -1862,6 +1890,8 @@ class Session:
         claims = parse_numbers(text, self.vars)
         if not claims:
             return None
+        if self.method == "thevenin":
+            return self._check_sim_th(text, claims)
         expected = ([(v, self.truth[v]) for v in self.vars] if self.vars
                     else [(t.describe(), tv) for t, tv in zip(self.targets, self.target_truth)])
         if not expected:
@@ -1877,6 +1907,34 @@ class Session:
         if not vals:
             return None
         diffs = [n for n, tv in expected if n in vals and not close(abs(vals[n]), abs(tv), 0.05)]
+        if not diffs:
+            self.c["simulador"] = True
+            return Outcome(True, item="s", partial_msg="Los resultados son consistentes con tus cálculos.")
+        return Outcome(False, "VALUE_WRONG", {"ecuacion_falla": ", ".join(diffs)},
+                       partial_msg=f"Hay diferencias en {', '.join(diffs)}.")
+
+    def _check_sim_th(self, text, claims):
+        """Lo medido en el simulador contra Vth, IN y, si hay carga, su voltaje y su corriente."""
+        verdad = {"Vth": float(self.th["vth"]), "IN": float(self.th["in"])}
+        medidos: dict[str, float] = {}
+        for clave, nombres in (("Vth", _TH_VTH), ("IN", _TH_IN)):
+            # el número que va con su nombre; los que siguen sin nombre son las mediciones de la carga
+            nombrados = [c.value for c in claims if c.var and c.var.lower().replace("_", "") in nombres]
+            if nombrados:
+                medidos[clave] = nombrados[-1]
+        if self.targets:
+            nombres = [t.describe() for t in self.targets]
+            verdad.update(zip(nombres, self.target_truth))
+            nombrados = _TH_VTH | _TH_IN | _TH_RTH
+            resto = [c for c in claims if not (c.var and c.var.lower().replace("_", "") in nombrados)]
+            medidos.update(self._assign_claims(resto, nombres))
+        if medidos:
+            diffs = [n for n, v in medidos.items() if not close(abs(v), abs(verdad[n]), 0.05)]
+        else:
+            # sin nombres: basta con que lo medido coincida con alguno de los resultados
+            conocidos = [*verdad.values(), float(self.th["rth"])]
+            coincide = any(close(abs(c.value), abs(k), 0.05) for c in claims for k in conocidos)
+            diffs = [] if coincide else ["tus mediciones"]
         if not diffs:
             self.c["simulador"] = True
             return Outcome(True, item="s", partial_msg="Los resultados son consistentes con tus cálculos.")
@@ -2056,6 +2114,10 @@ class Session:
         t, truth = self.targets[item], self.target_truth[item]
         value = claims[-1].value
         d = diagnose_value(value, truth, self._target_mutations(t))
+        if (self.method == "thevenin" and d.code == "DIV_V_RT_INCORRECTA" and claims[-1].unit == "A"
+                and close(abs(value), abs(float(self.th["in"])))):
+            # con una carga de 1 Ω, Vth·R/Rth vale lo mismo que IN; en amperes es la corriente de Norton
+            d = Diagnosis(False, "VALUE_WRONG")
         if d.ok:
             return Outcome(True, item=item, partial_msg="Correcto.")
         if d.code == "VALUE_SIGN" and t.quantity in ("I", "V"):
@@ -2374,11 +2436,11 @@ class Session:
         if d.ok:
             return Outcome(True, item="v", partial_msg="Correcto: ése es el voltaje de Thévenin.")
         code = "TARGET_WRONG" if d.code == "VALUE_WRONG" else d.code
-        a, b = self.th["a"], self.th["b"]
-        aviso = (f"El valor absoluto está bien, pero V_AB = V_{a} − V_{b}: {a} es la terminal positiva."
-                 if code == "VALUE_SIGN" else "")
+        a, b = self.th["na"], self.th["nb"]
+        # la pista del banco ya dice que el valor absoluto está bien: aquí sólo la convención
+        aviso = f"Recuerda: V_{a}{b} = V_{a} − V_{b}, y {a} es la terminal positiva." if code == "VALUE_SIGN" else ""
         return Outcome(False, code, {"var": "el voltaje de Thévenin", "elemento": "",
-                                     "ecuacion_falla": "V_AB"}, partial_msg=aviso)
+                                     "ecuacion_falla": f"V_{a}{b}"}, partial_msg=aviso)
 
     def _check_th_in(self, step, text):
         valor = self._valor_th(text, _TH_IN, "A")
@@ -2393,17 +2455,18 @@ class Session:
                 return Outcome(True, item="i", partial_msg="Correcto: ésa es la corriente de Norton.")
             return Outcome(True, item="i", partial_msg=(
                 "El valor es correcto en magnitud; el signo sólo indica el sentido respecto a tu referencia. "
-                f"En el equivalente, IN es la corriente de {self.th['a']} a {self.th['b']} por el corto."))
+                f"En el equivalente, IN es la corriente de {self.th['na']} a {self.th['nb']} por el corto."))
         code = "TARGET_WRONG" if d.code == "VALUE_WRONG" else d.code
         return Outcome(False, code, {"var": "la corriente de Norton", "elemento": "",
-                                     "ecuacion_falla": "I_AB"})
+                                     "ecuacion_falla": f"I_{self.th['na']}{self.th['nb']}"})
 
     def _check_th_equivalentes(self, step, text):
         """Vth en serie con Rth e IN en paralelo con RN, leído de texto libre con negaciones."""
         conexion: dict[str, set[str]] = {"th": set(), "no": set()}
         dudoso = False
         sujeto: set[str] = set()
-        for cl in re.split(r"[.;,\n]|\s+y\s+|\s+e\s+|\s+pero\s+|\s+mientras(?:\s+que)?\s+|\s+sino\s+", text):
+        for cl in re.split(r"[;,\n]|\.(?!\d)|\s+/\s+|\s+y\s+|\s+e\s+|\s+pero\s+|\s+mientras(?:\s+que)?\s+|\s+sino\s+",
+                           text):
             th, no = bool(_TH_SUJETO_RE.search(cl)), bool(_NO_SUJETO_RE.search(cl))
             serie, paralelo = _SERIE_RE.search(cl), _PARALELO_RE.search(cl)
             if th and no:
@@ -2451,6 +2514,22 @@ class Session:
             "Thévenin: una fuente de voltaje Vth en serie con Rth. Norton: una fuente de corriente IN en "
             "paralelo con RN.")})
 
+    def _th_diagnostico(self, clave: str, valor: float) -> Diagnosis:
+        """El código de un Rth, Vth o IN equivocado que llega de una vez en Verificar."""
+        if clave == "rth":
+            for tipo, mal in self._rth_apagando_mal().items():
+                if close(abs(valor), mal, 0.015):
+                    out = self._th_fuentes_mal(tipo)
+                    return Diagnosis(False, out.code, out.detail)
+            return Diagnosis(False, "VALUE_WRONG", {"var": "la resistencia de Thévenin"})
+        a, b = self.th["na"], self.th["nb"]
+        if clave == "vth":
+            d = diagnose_value(valor, float(self.th["vth"]), self._th_mutaciones_vth())
+            return Diagnosis(False, "TARGET_WRONG" if d.code == "VALUE_WRONG" else d.code,
+                             {"var": "el voltaje de Thévenin", "elemento": "", "ecuacion_falla": f"V_{a}{b}"})
+        return Diagnosis(False, "TARGET_WRONG", {"var": "la corriente de Norton", "elemento": "",
+                                                 "ecuacion_falla": f"I_{a}{b}"})
+
     def _relacion_th(self, text: str) -> bool:
         """¿Comprueba que Vth = IN·Rth (con la fórmula, con palabras o con sus tres valores)?"""
         low = text.lower()
@@ -2462,7 +2541,7 @@ class Session:
             r"divid\w*[^.]{0,30}(voltaje|vth|tensi[oó]n)[^.]{0,30}(entre|/)[^.]{0,20}(corriente|\bin\b|norton)"
             r"|multipl\w*[^.]{0,30}(\bin\b|corriente)[^.]{0,30}(rth|\brn\b|resistencia)"
             r"|(vth|voltaje)\s+(es\s+)?igual\s+a[^.]{0,20}(\bin\b|corriente)", low)
-        numeros = [abs(c.value) for c in parse_numbers(text)]
+        numeros = [abs(c.value) for c in parse_numbers(text, evaluar=False)]
         valores = "=" in text and all(any(close(x, abs(float(self.th[k])), 0.02) for x in numeros)
                                       for k in ("vth", "rth", "in") if abs(float(self.th[k])) > 1e-9)
         return bool(formula or palabras or valores)
@@ -2522,6 +2601,7 @@ class Session:
             red = next((s_ for s_ in self.steps if s_.kind == "reduce"), None)
             if self.method == "thevenin":
                 todos = [abs(c.value) for c in parse_numbers(text)]
+                malos: dict[str, Diagnosis] = {}
                 for clave, nombre, nombres, unidad, paso in (
                         ("rth", "Rth", _TH_RTH, "Ω", red),
                         ("vth", "Vth", _TH_VTH, "V", next((s_ for s_ in self.steps if s_.kind == "th_vth"), None)),
@@ -2530,13 +2610,25 @@ class Session:
                     if not paso or not paso.pending or verdad <= 1e-9:
                         continue
                     dado = self._valor_th(text, nombres, unidad, estricto=True)
-                    if dado is not None:
+                    if dado is not None and clave == "vth":
+                        # como en su paso, en Vth el signo cuenta: fija qué terminal es la positiva
+                        coincide = close(dado, float(self.th["vth"]), TABLE_TOL)
+                    elif dado is not None:
                         coincide = close(abs(dado), verdad, TABLE_TOL)
                     else:
                         coincide = any(close(v, verdad, TABLE_TOL) for v in todos)
                     if coincide:
                         paso.done.append(paso.items[0])
                         report.append(f"✔ {nombre} = {fmt(verdad)} {unidad}")
+                    elif dado is not None:
+                        # lo nombró con otro valor: se marca sin decir cuál es el bueno
+                        report.append(f"✘ {nombre} = {fmt(dado)} {unidad}")
+                        malos[paso.id] = self._th_diagnostico(clave, dado)
+                # el error que se atiende es el del primer paso pendiente; los demás se revisan en su paso
+                primero = next((s_ for s_ in self.steps if s_.kind in ("reduce", "th_vth", "th_in")
+                                and s_.pending), None)
+                if primero is not None and primero.id in malos:
+                    first_bad = malos[primero.id]
             elif red and "req" in red.pending and any(close(v, float(self.reducer.req), TABLE_TOL) for v in nums):
                 red.done.append("req")
                 report.append(f"✔ Req = {fmt(self.reducer.req)} Ω")

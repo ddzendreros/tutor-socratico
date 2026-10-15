@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 import sympy as sp
 
 from .circuit import Circuit, CircuitError, fmt
+from .mathparse import cuentas, fracciones
 from .solver import equivalent_resistance
 
 TOL = 0.015
@@ -66,6 +67,12 @@ def _close(a: float, b: float, tol: float = TOL) -> bool:
 
 def _par(values) -> sp.Rational:
     return 1 / sum(1 / v for v in values)
+
+
+def _estructurada(text: str, refs: list) -> bool:
+    """¿Es una cuenta con varias operaciones o paréntesis, y no una sola pareja?"""
+    t = re.sub(r"\|\||//", "∥", text)
+    return len(re.findall(r"[+∥*/·×(]", t)) >= 2 or len(refs) >= 3
 
 
 class Reducer:
@@ -194,7 +201,7 @@ class Reducer:
         live = self._live()
         known = {**live, **{n: self.items[n] for n in self.shorted}}
         refs: list[list[str]] = []
-        t = text.replace("Ω", " Ω ")
+        t = fracciones(cuentas(text.replace("Ω", " Ω ")))
         spans = []
         for m in re.finditer(r"\bR\s*_?\s*[Tt]\s*_?\s*(\d+)\b|\b([Rr]\s*_?\s*\w+)\b", t):
             if m.group(1):
@@ -228,7 +235,12 @@ class Reducer:
             if r not in dedup:
                 dedup.append(r)
         refs = dedup
+        vistos: list[float] = []
         for v in before:
+            # "(3)(6)/(3+6)": en el producto entre la suma cada valor se escribe dos veces
+            if any(_close(v, w, 0.005) for w in vistos):
+                continue
+            vistos.append(v)
             cands = [n for n, r in known.items() if _close(float(r.value), v, 0.005)]
             # "R2 y R3: 30*60/90" -> los valores repiten a las ya nombradas
             if cands and not (set(cands) & named):
@@ -245,6 +257,35 @@ class Reducer:
 
     # ------------------------------------------------------------ diagnóstico
     def check(self, text: str) -> Check | None:
+        # "R1 + R3 = 6, 6 ∥ 6 = 3, 3 + 1 = 4": varias combinaciones en un mensaje, en orden
+        partes = [p for p in re.split(r"[;\n]|,(?!\d)", text) if "=" in p]
+        if len(partes) < 2:
+            return self._check_uno(text)
+        inicio, aceptadas = len(self.history), []
+        for parte in partes:
+            if self.done:
+                break
+            chk = self._check_uno(parte)
+            if chk is None:
+                continue
+            if not chk.ok or chk.no_penalty:
+                return chk
+            aceptadas.append(chk)
+        if len(aceptadas) == 1:
+            return aceptadas[0]
+        if not aceptadas:
+            return None
+        return Check(True, message=self._resumen(self.history[inicio:]))
+
+    def _resumen(self, pasos: list[tuple[Move, str]]) -> str:
+        partes = []
+        for mv, nuevo in pasos:
+            sym = " ∥ " if mv.kind == "paralelo" else " + "
+            partes.append(f"{sym.join(display(n) for n in mv.members)} = {fmt(mv.value)} Ω"
+                          + ("" if nuevo not in self._live() or self.done else f" ({display(nuevo)})"))
+        return "Correcto, hiciste varios pasos a la vez: " + "; ".join(partes) + "."
+
+    def _check_uno(self, text: str) -> Check | None:
         low = text.lower()
         relation = "paralelo" if re.search(r"paralel|\|\||∥", low) else \
             "serie" if re.search(r"\bserie\b", low) else None
@@ -266,6 +307,11 @@ class Reducer:
                     continue
                 if self.is_parallel(combo) or self.is_series(combo):
                     return self._judge_group(combo, relation, value)
+            # una cuenta completa ("R4 ∥ (R3 + R5) = 5.333") se juzga por su resultado
+            if value is not None and _estructurada(text, refs):
+                por_valor = self._por_valor(value, {r[0] for r in refs if len(r) == 1})
+                if por_valor:
+                    return por_valor
             combo = options[0] if options else tuple(r[0] for r in refs)
             shorted = set(combo) & self.shorted
             if shorted:
@@ -277,6 +323,21 @@ class Reducer:
         if value is None:
             return None
         return self._judge_value(value)
+
+    def _por_valor(self, value: float, nombradas: set[str]) -> Check | None:
+        """Acepta el valor si sale de combinaciones válidas que incluyen todas las resistencias nombradas."""
+        estado = (dict(self.items), set(self.removed), self.counter, list(self.history))
+        chk = self._judge_value(value)
+        if chk.ok:
+            nuevos = [n for _, n in self.history[len(estado[3]):] if n in self.items]
+            tocadas = {p for n in nuevos for p in self.items[n].parts}
+            originales = {p for n in nombradas for p in (self.items[n].parts if n in self.items else
+                                                         estado[0][n].parts if n in estado[0] else (n,))}
+            if nuevos and originales <= tocadas:
+                return chk
+        self.items, self.removed, self.counter, self.history = (
+            dict(estado[0]), set(estado[1]), estado[2], list(estado[3]))
+        return None
 
     def _judge_group(self, combo, relation, value) -> Check:
         live = self._live()

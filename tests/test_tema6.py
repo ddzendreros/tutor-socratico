@@ -754,7 +754,7 @@ def test_thevenin_el_voltaje_de_thevenin_detecta_divisor_incompleto_y_signo():
     s.reply("24 V")                                     # 12 V · 6 Ω / 3 Ω: sin la resistencia total
     assert codigos(s) == ["DIV_V_RT_INCORRECTA"] and s.step.id == "th_vth"
     m = s.reply("-8 V")
-    assert codigos(s)[-1] == "VALUE_SIGN" and "V_A − V_0" in m and "terminal positiva" in m
+    assert codigos(s)[-1] == "VALUE_SIGN" and "V_A − V_B" in m and "terminal positiva" in m
     s.reply("8 V")
     assert s.step.id == "th_in"
 
@@ -1075,8 +1075,9 @@ def test_thevenin_el_error_de_las_fuentes_se_detecta_en_los_cuatro_modos(modo):
     if modo in ("aprender", "simulador"):
         mensajes = [INTRO_TH] + mensajes
     dialogo(s, mensajes)
-    if modo == "verificar":                              # sólo reconoce lo correcto: lo demás se pregunta
-        assert codigos(s) == [] and s.step.id == "th_rth"
+    if modo == "verificar":                              # lo marca sin decir el valor bueno
+        assert codigos(s) == ["TH_FUENTES_ENCENDIDAS"] and s.step.id == "th_rth"
+        assert "✘ Rth = 1.2 Ω" in s.transcript[-1]["texto"]
     else:
         assert codigos(s) == ["TH_FUENTES_ENCENDIDAS"] and s.step.id == "th_rth"
 
@@ -1155,3 +1156,167 @@ def test_una_duda_de_teoria_en_los_pasos_de_concepto_se_atiende_como_pista():
     # la ficha del tema trae la respuesta de estos pasos: se dan como pista y se anotan como concepto
     assert set(PASOS_DE_CONCEPTO) == {"concept", "sup_apagar", "th_equivalentes"}
     assert all(PASOS_ANOTADOS[k] == "concepto" for k in PASOS_DE_CONCEPTO)
+
+
+# ------------------------------------------------- cuentas completas y fracciones
+def hasta(s, paso):
+    for _ in range(40):
+        if s.step.id == paso or s.finished:
+            break
+        s.reply(correct_answer(s))
+    assert s.step.id == paso
+    return s
+
+
+@pytest.mark.parametrize("pid, texto", [
+    ("thevenin-01", "Rth = (3)(6)/(3+6) = 2 Ω"),            # el producto entre la suma, como en clase
+    ("thevenin-01", "R1R2/(R1+R2) = 2"),
+    ("thevenin-01", "Rth = 3*6/(3+6)"),                     # sin escribir el resultado
+    ("thevenin-04", "R4 ∥ (R3 + R5) = 5.333"),
+    ("thevenin-04", "(R3+R5)||R4 = 5.333 Ω"),
+    ("thevenin-04", "8*16/(8+16) = 5.333"),
+    ("thevenin-04", "Rth = 16/3 Ω"),
+    ("thevenin-04", "Rth vale 16/3 Ω"),
+    ("thevenin-03", "Rth = (R1+R3)∥R2 + R4 = 4"),
+])
+def test_la_resistencia_de_thevenin_con_la_cuenta_completa_es_correcta(pid, texto):
+    s = sesion(pid, "practicar")
+    m = s.reply(texto)
+    assert codigos(s) == [] and s.step.id == "th_vth", m
+    assert "R3 + R5 = 16" not in m                          # 16/3 no es la serie de R3 y R5
+
+
+def test_varias_combinaciones_en_un_mensaje_se_revisan_en_orden():
+    s = sesion("thevenin-03", "practicar")
+    m = s.reply("Rth = 4 Ω (R1+R3=6, 6∥6=3, 3+1=4)")
+    assert codigos(s) == [] and s.step.id == "th_vth"
+    assert "varios pasos" in m and "R1 + R3 = 6 Ω" in m
+    s = sesion("thevenin-03", "practicar")
+    s.reply("R1 + R3 = 6, 6 + 6 = 12")                     # la segunda está en paralelo, no en serie
+    assert codigos(s) == ["SP_PARALLEL_SUMMED"] and s.step.id == "th_rth"
+    assert "R_T1 (6 Ω)" in s.pregunta_actual()             # la primera combinación sí quedó
+
+
+@pytest.mark.parametrize("pid, texto, codigo", [
+    ("thevenin-03", "R1 y R4 en serie = 4", "SP_NOT_COMBINABLE"),   # el valor final no basta sin cuenta
+    ("thevenin-03", "(R1 + R3) ∥ R4 = 3", "SP_NOT_COMBINABLE"),     # 3 sale de R2, no de R4
+    ("thevenin-03", "R2 + R1 + R4 = 9", "SP_NOT_COMBINABLE"),
+    ("thevenin-02", "Rth = 6/5", "TH_FUENTES_ENCENDIDAS"),          # 1.2 Ω en fracción
+    ("thevenin-01", "Rth = 3 + 6 = 9", "SP_PARALLEL_SUMMED"),
+    ("thevenin-01", "Rth = 3*6/(3+6) = 1.5", "VALUE_WRONG"),        # bien combinadas, mal la operación
+])
+def test_las_cuentas_equivocadas_siguen_siendo_error(pid, texto, codigo):
+    s = sesion(pid, "practicar")
+    s.reply(texto)
+    assert codigos(s) == [codigo] and s.step.id == "th_rth"
+
+
+def test_el_producto_entre_la_suma_tambien_vale_en_serie_y_paralelo():
+    s = sesion("serie-04", "practicar")
+    hasta(s, "reduce")
+    m = s.reply("6*3/(6+3) = 2")
+    assert codigos(s) == [] and "R1 y R2" not in m and "R2 y R1 y R2" not in m
+
+
+@pytest.mark.parametrize("paso, texto", [
+    ("th_vth", "Vth = 35/3"), ("th_vth", "Vth = 35/3 V"),
+    ("th_in", "IN = 35/16"), ("targets", "VR2 = 35/19"), ("targets", "V = 35/3 · 1/(16/3 + 1)"),
+])
+def test_los_resultados_en_fraccion_se_aceptan(paso, texto):
+    s = hasta(sesion("thevenin-04", "practicar"), paso)
+    s.reply(texto)
+    assert codigos(s) == [] and (s.step.id != paso or s.step.done)
+
+
+def test_verificar_reconoce_los_resultados_en_fraccion():
+    s = sesion("thevenin-04", "verificar")
+    m = s.reply("Rth = 16/3 Ω, Vth = 35/3 V, IN = 35/16 A, V R2 = 35/19 V, I R2 = 35/19 A")
+    assert m.count("✔") == 5 and s.step.id == "th_equivalentes"
+
+
+# ------------------------------------------------------------- nombres de las terminales
+@pytest.mark.parametrize("pid", ["thevenin-01", "thevenin-02", "thevenin-03", "thevenin-04"])
+def test_el_tutor_nombra_las_terminales_como_el_enunciado_y_el_dibujo(pid):
+    textos = []
+    for modo in MODES:
+        s = sesion(pid, modo)
+        textos.append(s.transcript[-1]["texto"])
+        for _ in range(40):
+            if s.finished:
+                break
+            textos.append(s.pregunta_actual())
+            textos += [s._ladder(s.step, n) for n in range(1, 6)]
+            s.reply(correct_answer(s))
+    todo = " ".join(textos)
+    assert "V_AB = V_A − V_B" in todo and "entre A y B" in todo and "de A a B" in todo
+    for raro in ("V_0", "A y 0", "a y b", "V_a", "de a a b", "nodos a"):
+        assert raro not in todo, raro
+
+
+def test_sin_terminal_b_en_el_enunciado_se_usan_los_nodos():
+    s = propio("METODO: thevenin\nPIDE: TH x-0\n\nV1 y 0 12\nR1 y x 3\nR2 x 0 6", "practicar")
+    assert "V_x0 = V_x − V_0" in s.transcript[-1]["texto"]
+
+
+def test_el_signo_de_vth_no_repite_el_aviso():
+    s = hasta(sesion("thevenin-02", "practicar"), "th_vth")
+    m = s.reply("Vth = -8 V")
+    assert codigos(s) == ["VALUE_SIGN"] and m.count("valor absoluto") == 1 and "V_AB = V_A − V_B" in m
+
+
+# --------------------------------------------------------------- la carga de 1 Ω
+def test_con_la_carga_de_un_ohm_la_corriente_de_norton_no_se_toma_como_divisor():
+    s = hasta(sesion("thevenin-04", "practicar"), "targets")
+    s.reply("I R2 = 2.1875 A")                              # IN: el alumno olvidó la carga
+    assert codigos(s) == ["TARGET_WRONG"]
+    s.reply("V R2 = 2.1875 V")                              # Vth·R/Rth: sí es el divisor sin la carga
+    assert codigos(s) == ["TARGET_WRONG", "DIV_V_RT_INCORRECTA"]
+
+
+# ------------------------------------------------------------------ equivalentes
+@pytest.mark.parametrize("texto", [
+    "una fuente de 8 V en serie con 2 Ω; una fuente de 4 A en paralelo con 2 Ω",
+    "la de 8 V va en serie con su resistencia y la de 4 A en paralelo",
+    "thévenin: serie / norton: paralelo",
+])
+def test_equivalentes_dichos_con_sus_valores_o_con_diagonal(texto):
+    s = hasta(sesion("thevenin-02", "practicar"), "th_equivalentes")
+    s.reply(texto)
+    assert codigos(s) == [] and s.step.id == "verify"
+
+
+def test_equivalentes_con_valores_y_la_conexion_cambiada_dan_el_codigo():
+    s = hasta(sesion("thevenin-02", "practicar"), "th_equivalentes")
+    s.reply("una fuente de 8 V en paralelo con 2 Ω; una fuente de 4 A en serie con 2 Ω")
+    assert codigos(s) == ["TH_NORTON_EN_SERIE"]
+
+
+# ---------------------------------------------------------------------- Verificar
+def test_verificar_marca_lo_que_no_coincide_y_atiende_el_primer_paso():
+    s = sesion("thevenin-02", "verificar")
+    m = s.reply("Rth = 1.2 Ω, Vth = 20 V, IN = 4 A")
+    assert "✘ Rth = 1.2 Ω" in m and "✘ Vth = 20 V" in m and "✔ IN = 4 A" in m
+    assert "8" not in m.split("Empecemos")[0]               # no dice el valor bueno
+    assert codigos(s) == ["TH_FUENTES_ENCENDIDAS"] and s.step.id == "th_rth"
+    s = sesion("thevenin-02", "verificar")
+    m = s.reply("Rth = 2 Ω, Vth = -8 V, IN = -4 A")         # en Vth el signo cuenta; en IN, no
+    assert "✘ Vth = -8 V" in m and "✔ IN = 4 A" in m
+    assert codigos(s) == ["VALUE_SIGN"] and s.step.id == "th_vth"
+
+
+# ---------------------------------------------------------------------- Simulador
+def test_el_simulador_pide_medir_el_equivalente_y_lo_revisa():
+    s = hasta(sesion("thevenin-01", "simulador"), "sim")
+    assert "Vth (entre A y B" in s.pregunta_actual() and "IN (por un corto" in s.pregunta_actual()
+    con_carga = hasta(sesion("thevenin-04", "simulador"), "sim").pregunta_actual()
+    assert "Vth (entre A y B" in con_carga and "el voltaje en R2" in con_carga
+    s.reply("Vth = 12 V, IN = 4 A")
+    assert codigos(s) == ["VALUE_WRONG"] and s.step.id == "sim"
+    s.reply("Vth = 8 V, IN = 4 A")
+    assert s.c["simulador"] and s.step.id == "metacog"
+
+
+def test_la_pista_del_inicio_dice_que_se_busca_el_equivalente():
+    s = sesion("thevenin-04", "aprender")
+    assert "el equivalente de Thévenin y Norton que ve R2 (entre A y B)" in s._ladder(s.step, 5)
+

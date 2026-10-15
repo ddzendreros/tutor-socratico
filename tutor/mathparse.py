@@ -186,6 +186,57 @@ _NUM_RE = re.compile(
 )
 
 
+# "35/3" es un solo valor; en "12*6/9" o "3*6/(3+6)" la diagonal es parte de una cuenta
+_FRACCION_RE = re.compile(
+    r"(?<![\w.*/)×·])(?P<num>\d+(?:\.\d+)?)\s*/\s*(?P<den>\d+(?:\.\d+)?)(?![\w.(]|\s*[*/(×·])")
+
+
+def fracciones(t: str) -> str:
+    """'Vth = 35/3 V' -> 'Vth = 11.666666666666666 V'; deja las cuentas como están."""
+    def rep(m):
+        den = float(m.group("den"))
+        antes = t[:m.start()].rstrip()[-1:]
+        if not den or antes in ("*", "/", ")", "×", "·"):
+            return m.group(0)
+        return repr(float(m.group("num")) / den)
+    return _FRACCION_RE.sub(rep, t)
+
+
+_CUENTA_CHARS = set("0123456789. +-*/()·×")
+_UNIDAD_RE = re.compile(r"[kKmMuµμ]?(?:Ω|ohms?|ohmios?|V|A|W|volts?|voltios?|amperes?|amperios?|amps?|watts?)"
+                        r"(?![A-Za-z0-9_])")
+
+
+def cuentas(t: str) -> str:
+    """'Rth = 3*6/(3+6) Ω' -> 'Rth = 2.0 Ω': una cuenta sin resultado después de '=' vale su resultado.
+    Si después viene otro '=', el alumno ya escribió el resultado y se deja como está."""
+    out, i = [], 0
+    for m in re.finditer("=", t):
+        j = m.end()
+        k = j
+        while k < len(t) and t[k] in _CUENTA_CHARS:
+            k += 1
+        expr, resto = t[j:k].strip(), t[k:].lstrip()
+        if not expr or resto.startswith("=") or not re.search(r"\d\s*[-+*/·×(]|\)", expr):
+            continue
+        # "I1 = 10 - 2 I2" es una ecuación, no una cuenta: lo que sigue sólo puede ser una unidad
+        if resto[:1].isalpha() and not _UNIDAD_RE.match(resto):
+            continue
+        py = expr.replace("·", "*").replace("×", "*")
+        if "**" in py or "//" in py:      # potencias (pueden no terminar) y "6 // 3", que es paralelo
+            continue
+        py = re.sub(r"\)\s*\(", ")*(", py)
+        py = re.sub(r"(\d)\s*\(", r"\1*(", py)
+        py = re.sub(r"\)\s*(\d)", r")*\1", py)
+        try:
+            valor = float(eval(compile(py, "<cuenta>", "eval"), {"__builtins__": {}}, {}))
+        except (SyntaxError, ZeroDivisionError, TypeError, ValueError):
+            continue
+        out.append(t[i:j] + " " + repr(valor) + (" " if t[k:k + 1].strip() else ""))
+        i = k
+    return "".join(out) + t[i:]
+
+
 @dataclass
 class NumClaim:
     var: str | None
@@ -193,9 +244,10 @@ class NumClaim:
     unit: str | None
 
 
-def parse_numbers(text: str, allowed_vars: list[str] | None = None) -> list[NumClaim]:
-    """'I1 = 2.45 A, I2=1364 mA' -> [NumClaim('I1',2.45,'A'), NumClaim('I2',1.364,'A')]."""
-    t = _clean(text)
+def parse_numbers(text: str, allowed_vars: list[str] | None = None, evaluar: bool = True) -> list[NumClaim]:
+    """'I1 = 2.45 A, I2=1364 mA' -> [NumClaim('I1',2.45,'A'), NumClaim('I2',1.364,'A')].
+    Con `evaluar`, «Rth = 3*6/(3+6)» vale 2; sin él se leen los números de la cuenta."""
+    t = fracciones(cuentas(_clean(text)) if evaluar else _clean(text))
     if allowed_vars:
         t = normalize_vars(t, allowed_vars)
     out = []
