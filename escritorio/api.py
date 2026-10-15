@@ -39,6 +39,8 @@ TOPICS = {
     "serie_paralelo": "Serie y paralelo",
     "mallas": "Método de mallas",
     "nodos": "Método de nodos",
+    "divisor": "Divisor de voltaje y corriente",
+    "superposicion": "Superposición",
 }
 
 # intenciones que se contestan con una plantilla sin que el motor evalúe nada
@@ -51,7 +53,10 @@ MOTIVOS_SALIDA = {"boton", "inactividad", "cierre", "cambio"}
 MAX_EVENTOS_COMPOSICION = 5000
 
 # respuestas abiertas que el modelo anota con la rúbrica, sólo como dato
-PASOS_ANOTADOS = {"concept": "concepto", "verify": "verificacion", "metacog": "metacognicion"}
+PASOS_ANOTADOS = {"concept": "concepto", "sup_apagar": "concepto", "verify": "verificacion",
+                  "metacog": "metacognicion"}
+# pasos cuya pregunta la responde la ficha de teoría: la duda se atiende como pista
+PASOS_DE_CONCEPTO = ("concept", "sup_apagar")
 IDEAS_ESPERADAS = {
     "verificacion": ("Una forma concreta de comprobar los resultados: balance de potencias (PE = PC), sustituir "
                      "los valores en las ecuaciones originales (LVK o LCK) o medir en un simulador."),
@@ -610,7 +615,7 @@ class ApiTutor:
                 turno.update(intencion=info["intencion"], intencion_modelo=info["intencion"],
                              intencion_ms=info.get("ms"))
         # en un paso concept la ficha contiene la respuesta del paso: se atiende como pista
-        if turno["intencion"] == "pregunta_teoria" and s.step.kind == "concept":
+        if turno["intencion"] == "pregunta_teoria" and s.step.kind in PASOS_DE_CONCEPTO:
             turno["intencion"] = "ayuda"
 
         if turno["intencion"] == "respuesta" and self._pide_confianza(texto):

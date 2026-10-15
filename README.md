@@ -2,7 +2,8 @@
 
 Tutor que guía al estudiante con preguntas y pistas graduadas (escalera de andamiaje 0–5) para
 resolver problemas de circuitos de CD: Ley de Ohm y potencia, serie/paralelo, mallas (con mallas
-fantasma y supermallas) y nodos (con nodos fantasma y supernodos). Sigue el **método de formato**
+fantasma y supermallas), nodos (con nodos fantasma y supernodos), divisor de voltaje y de corriente,
+y superposición. Sigue el **método de formato**
 que se usa en clase y tiene costo **$0**. Se está convirtiendo en una aplicación de escritorio para
 Windows 10/11 que funcione sin internet.
 

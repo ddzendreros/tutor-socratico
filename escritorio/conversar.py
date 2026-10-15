@@ -120,7 +120,7 @@ def main() -> int:
                 else:
                     intencion = "respuesta"
             # en un paso de concepto la ficha contiene la respuesta: la duda se atiende como pista
-            if intencion == "pregunta_teoria" and sesion.step.kind == "concept":
+            if intencion == "pregunta_teoria" and sesion.step.kind in ("concept", "sup_apagar"):
                 intencion = "ayuda"
 
             if intencion == "ayuda":

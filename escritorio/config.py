@@ -6,7 +6,8 @@ MODELO_ARCHIVO = "gemma-4-E2B_q4_0-it.gguf"
 
 INACTIVIDAD_MIN = 30
 # tipos de paso en los que se pregunta la confianza; deben estar en CONFIANZA_KINDS del motor
-PASOS_CON_CONFIANZA = ("equations", "values", "targets", "table", "reduce", "concept", "submit")
+PASOS_CON_CONFIANZA = ("equations", "values", "targets", "table", "reduce", "concept", "submit",
+                       "sup_apagar", "sup_parcial", "sup_suma")
 
 # ranuras de llama-server; cada una conserva en caché el prefijo de su prompt
 RANURA_VOZ = 0

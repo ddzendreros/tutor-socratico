@@ -1,0 +1,14 @@
+TITULO: Divisor de voltaje · Tres resistencias en serie
+TEMA: divisor
+METODO: divisor
+NIVEL: básico
+FUENTE: Material de clase, Tema 6 (Divisor de voltaje), p. 2
+IMAGEN: divisor-01-voltaje.svg
+ENUNCIADO: Una fuente de 12 V se conecta en serie con R1 = 5 Ω, R2 = 3 Ω y R3 = 8 Ω. Con el divisor de voltaje, calcula el voltaje en cada resistencia.
+PIDE: V R1; V R2; V R3
+RESPUESTA: V R1=3.75 V R2=2.25 V R3=6
+
+VT a 0 12
+R1 a b 5
+R2 b c 3
+R3 c 0 8

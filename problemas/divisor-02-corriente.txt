@@ -1,0 +1,13 @@
+TITULO: Divisor de corriente · Dos ramas en paralelo
+TEMA: divisor
+METODO: divisor
+NIVEL: básico
+FUENTE: Material de clase, Tema 6 (Divisor de corriente), p. 4
+IMAGEN: divisor-02-corriente.svg
+ENUNCIADO: Una fuente de 5 A alimenta dos resistencias en paralelo: R1 = 5 kΩ y R2 = 20 kΩ. Con el divisor de corriente, calcula la corriente en cada una.
+PIDE: I R1; I R2
+RESPUESTA: I R1=4 I R2=1
+
+IT 0 a 5
+R1 a 0 5k
+R2 a 0 20k

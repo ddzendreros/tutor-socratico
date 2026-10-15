@@ -117,6 +117,22 @@ def equivalent_resistance(circuit: Circuit, a: str, b: str,
     return sp.nsimplify(sol.node_v[a2])
 
 
+def apagar_fuentes(circuit: Circuit, activa: str | None) -> Circuit:
+    """Copia del circuito con encendida sólo la fuente `activa` (ninguna si es None).
+
+    Las demás fuentes de voltaje quedan en 0 V (cortocircuito) y las de corriente en
+    0 A (circuito abierto); los elementos conservan su nombre y sus nodos.
+    """
+    if activa is not None and circuit.get(activa).kind == "R":
+        raise CircuitError(f"{activa} no es una fuente.")
+    elements = []
+    for e in circuit.elements:
+        apagar = e.kind in ("V", "I") and (activa is None or e.name.lower() != activa.lower())
+        elements.append(Element(e.name, e.kind, e.n1, e.n2, sp.Integer(0) if apagar else e.value))
+    return Circuit(elements, list(circuit.targets), circuit.statement,
+                   [list(m) for m in circuit.meshes])
+
+
 def target_value(circuit: Circuit, sol: Solution, t: Target) -> sp.Rational:
     if t.quantity == "I":
         return sol.elem_i[t.element]

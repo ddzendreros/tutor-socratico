@@ -1,0 +1,17 @@
+TITULO: Superposición · Ejemplo 3 (V e I en R1)
+TEMA: superposicion
+METODO: superposicion
+NIVEL: intermedio
+FUENTE: Material de clase, Tema 6 (Superposición), Ejemplo 3, pp. 13–15
+IMAGEN: superposicion-03-ejemplo-3.svg
+ENUNCIADO: Una fuente de 15 V (con el + hacia la izquierda) cierra el lazo de R1 = 5 Ω y R2 = 10 Ω por arriba. R3 = 15 Ω y R4 = 20 Ω van del riel inferior a un nodo central donde llega una fuente de corriente de 2 A. El riel inferior une los extremos de R3 y R4 con las bases de R1 y R2. Encuentra el voltaje y la corriente en R1 con el teorema de superposición.
+PIDE: V R1; I R1
+RESPUESTA: V R1=5 I R1=1
+NOTA: (para el profesor) Con la fuente de voltaje apagada, la fuente de corriente se reparte entre R3 y R4 y no pasa nada por R1: ese caso vale 0 V y 0 A.
+
+VX tl tr 15
+R1 tl 0 5
+R2 tr 0 10
+R3 0 m 15
+R4 m 0 20
+IX 0 m 2

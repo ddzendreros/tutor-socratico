@@ -9,6 +9,7 @@ El LLM, si está disponible, sólo reescribe ese texto con naturalidad (ver llm.
 """
 from __future__ import annotations
 
+import itertools
 import re
 import time
 from dataclasses import dataclass, field
@@ -16,7 +17,7 @@ from dataclasses import dataclass, field
 import sympy as sp
 
 from . import analysis as an
-from .circuit import Circuit, CircuitError, Target, fmt
+from .circuit import Circuit, CircuitError, Element, Target, fmt
 from .diagnose import (
     Diagnosis, check_system_values, close, diagnose_equation, diagnose_value,
     mesh_mappings, series_parallel_mutations,
@@ -27,13 +28,15 @@ from .mathparse import (
     parse_expression, parse_linear_equation, parse_numbers, split_equations,
 )
 from .reduction import Reducer
-from .solver import solve, target_unit, target_value
+from .solver import apagar_fuentes, equivalent_resistance, solve, target_unit, target_value
 
 METHODS = {"ohm": "Ley de Ohm y potencia", "serie_paralelo": "Serie/paralelo",
-           "mallas": "Método de mallas", "nodos": "Método de nodos"}
+           "mallas": "Método de mallas", "nodos": "Método de nodos",
+           "divisor": "Divisor de voltaje y de corriente", "superposicion": "Superposición"}
 TYPE_WORDS = {"fantasma": "fantasma", "super": None, "real": "real"}
 TABLE_TOL = 0.02
-JUSTIFY_KINDS = {"shared_expr", "mesh_types", "node_types", "concept", "reduce", "shared_id"}
+JUSTIFY_KINDS = {"shared_expr", "mesh_types", "node_types", "concept", "reduce", "shared_id",
+                 "sup_apagar", "sup_suma"}
 MODES = {"aprender": "Aprender", "practicar": "Practicar",
          "verificar": "Verificar", "simulador": "Simulador"}
 
@@ -47,7 +50,17 @@ NO_PENALTY = {"PARSE_ERROR", "ELABORATE", "AHEAD"}
 NUM_WORDS = {"una": 1, "uno": 1, "dos": 2, "tres": 3, "cuatro": 4, "cinco": 5, "seis": 6}
 CONFIANZA_KINDS = {
     "equations", "values", "targets", "table", "reduce", "concept", "submit",
+    "sup_apagar", "sup_parcial", "sup_suma",
 }
+# cómo reconoce el alumno que una fuente está apagada: en corto (voltaje) o abierta (corriente)
+_CORTO_RE = re.compile(r"cort[oó]|cortocircuit|conexi[oó]n\s+directa|\bcable\b|\bpuente\b|\b0\s*V\b|cero\s+volt", re.I)
+_ABIERTO_RE = re.compile(r"abiert|\babre\b|\babrir|desconect|\b0\s*A\b|cero\s+amp", re.I)
+_VOLTAJE_RE = re.compile(r"voltaje|tensi[oó]n|bater[ií]a|\bfuentes?\s+(de\s+)?v\b", re.I)
+_CORRIENTE_RE = re.compile(r"corriente|amper|\bfuentes?\s+(de\s+)?i\b", re.I)
+# "no la dejo abierta": una cláusula negada no dice qué se hace con la fuente
+_NEGACION_RE = re.compile(r"\b(no|nunca|ni)\b", re.I)
+# "la quito", "la apago": correcto pero sin decir con qué se reemplaza (así lo dice la diapositiva)
+_QUITAR_RE = re.compile(r"\b(quit|elimin|retir|apag|desactiv|sac)\w*", re.I)
 
 # sólo unidades escritas como palabra: una letra suelta ("A ver…", "¿qué es la V?") no es una respuesta,
 # y una respuesta con unidad de una letra ya lleva número
@@ -128,6 +141,11 @@ class Session:
         self.targets = [t for t in self.targets if t.quantity != "VIP"]
         if method in ("ohm", "serie_paralelo") and not self.targets and not self.want_table:
             self.targets = self._default_targets()
+        self.div_tipo = ""
+        if method == "divisor":
+            self.div_tipo = self._tipo_divisor()
+            if not self.targets and not self.want_table:
+                self.targets = self._default_targets()
         self.reducer: Reducer | None = None
         if method == "serie_paralelo":
             req = next((t for t in self.targets if t.quantity == "Req"), None)
@@ -141,6 +159,13 @@ class Session:
                 self.targets = [t for t in self.targets if t is not req]
         self.target_truth = [float(target_value(circuit, self.sol, t)) for t in self.targets]
         self.table_rows = [e.name for e in circuit.by_kind("R") if e.n1 != e.n2]
+        # superposición: fuentes independientes, valor de cada magnitud con sólo una encendida
+        # y el sentido (respecto a la referencia del elemento) con que el alumno dio cada parcial
+        self.sup_fuentes: list[str] = []
+        self.sup_parcial: list[list[float]] = []
+        self.sup_sentidos: dict[tuple[int, int], str] = {}
+        if method == "superposicion":
+            self._preparar_superposicion()
 
         self.steps = self._build_plan()
         self.idx = 0
@@ -164,7 +189,39 @@ class Session:
         self._turno_eval: dict = {}
 
     # ================================================================ plan
+    def _tipo_divisor(self) -> str:
+        """'V' si es una fuente de voltaje con resistencias en serie; 'I' si es una fuente de
+        corriente con resistencias en paralelo."""
+        c = self.circuit
+        rs = [e for e in c.by_kind("R") if e.n1 != e.n2]
+        vs, cs = c.by_kind("V"), c.by_kind("I")
+        if len(rs) >= 2 and len(vs) == 1 and not cs and len(c.elements) - len(c.nodes) + 1 == 1:
+            return "V"
+        if len(rs) >= 2 and len(cs) == 1 and not vs:
+            par = frozenset((cs[0].n1, cs[0].n2))
+            if all(frozenset((e.n1, e.n2)) == par for e in rs):
+                return "I"
+        raise CircuitError("Para el divisor, el circuito debe ser una fuente de voltaje con resistencias "
+                           "en serie o una fuente de corriente con resistencias en paralelo.")
+
+    def _preparar_superposicion(self) -> None:
+        c = self.circuit
+        fuentes = [e for e in c.elements if e.kind in ("V", "I")]
+        if len(fuentes) < 2:
+            raise CircuitError("La superposición necesita al menos dos fuentes independientes.")
+        if self.want_table or not self.targets or any(t.quantity not in ("I", "V") for t in self.targets):
+            raise CircuitError("En superposición pide voltajes o corrientes de elementos (por ejemplo: "
+                               "PIDE: I R2). La potencia no se superpone: no se puede sumar caso por caso.")
+        self.sup_fuentes = [e.name for e in fuentes]
+        for name in self.sup_fuentes:
+            apagado = apagar_fuentes(c, name)
+            sol = solve(apagado)
+            self.sup_parcial.append([float(target_value(apagado, sol, t)) for t in self.targets])
+
     def _default_targets(self) -> list[Target]:
+        if self.method == "divisor":
+            q = "V" if self.div_tipo == "V" else "I"
+            return [Target(q, e.name) for e in self.circuit.by_kind("R") if e.n1 != e.n2]
         srcs = self.circuit.by_kind("V") + self.circuit.by_kind("I")
         ts = [Target("I", e.name) for e in self.circuit.by_kind("R")]
         if len(srcs) == 1 and srcs[0].kind == "V" and self.method == "serie_paralelo":
@@ -206,6 +263,21 @@ class Session:
                 steps.append(Step("concept", "concept", items=["c"], data=self._sp_concept()))
             if self.reducer is not None:
                 steps.append(Step("reduce", "reduce", items=["req"]))
+        elif m == "divisor":
+            if micro:
+                steps.append(Step("concept", "concept", items=["c"], data=self._sp_concept()))
+        elif m == "superposicion":
+            if micro:
+                steps.append(Step("sup_casos", "sup_casos", items=["n"]))
+            for k, name in enumerate(self.sup_fuentes):
+                if micro:
+                    steps.append(Step(f"sup_apagar_{k + 1}", "sup_apagar", items=["a"], data={
+                        "k": k, "hint": "Una fuente de voltaje apagada vale 0 V: se reemplaza por un "
+                                        "cortocircuito (conexión directa). Una fuente de corriente apagada "
+                                        "vale 0 A: se reemplaza por un circuito abierto."}))
+                steps.append(Step(f"sup_parcial_{k + 1}", "sup_parcial",
+                                  items=list(range(len(self.targets))), data={"k": k}))
+            steps.append(Step("sup_suma", "sup_suma", items=list(range(len(self.targets)))))
         elif m == "ohm":
             if micro:
                 steps.append(Step("concept", "concept", items=["c"], data={
@@ -213,7 +285,7 @@ class Session:
                     "ok": [r"ohm", r"v\s*=\s*(r\s*\*?\s*i|i\s*\*?\s*r)", r"i\s*=\s*v\s*/\s*r"],
                     "bad": {},
                     "hint": "La Ley de Ohm: V = R·I."}))
-        if self.targets:
+        if self.targets and m != "superposicion":
             steps.append(Step("targets", "targets", items=list(range(len(self.targets)))))
         if self.want_table:
             steps.append(Step("table", "table", items=list(self.table_rows)))
@@ -415,7 +487,30 @@ class Session:
                     f"{', '.join(step.pending)}.")
         if k == "targets":
             t = self.targets[item]
+            if self.method == "divisor":
+                que = "voltaje" if self.div_tipo == "V" else "corriente"
+                return f"Ahora calcula {t.describe()} (en {target_unit(t)}) con el divisor de {que}."
             return f"Ahora calcula {t.describe()} (en {target_unit(t)})."
+        if k == "sup_casos":
+            return ("Ahora dime: ¿cuántas fuentes independientes tiene el circuito y, por lo tanto, "
+                    "cuántos casos vas a analizar?")
+        if k == "sup_apagar":
+            src = self.circuit.get(self.sup_fuentes[step.data["k"]])
+            return (f"Caso {step.data['k'] + 1}: vas a analizar el efecto de {src.label}. ¿Qué haces con "
+                    "las demás fuentes para que sólo ésta actúe?")
+        if k == "sup_parcial":
+            src = self.circuit.get(self.sup_fuentes[step.data["k"]])
+            t = self.targets[item]
+            text = (f"Con sólo {src.label} encendida y las demás apagadas, ¿cuánto vale "
+                    f"{t.describe()} (en {target_unit(t)})?")
+            if step.data["k"] == 0 and not step.done:
+                text += (" Anota también su sentido: usa la misma referencia en todos los casos y da signo "
+                         "negativo a lo que vaya en sentido contrario.")
+            return text
+        if k == "sup_suma":
+            t = self.targets[item]
+            return (f"Ahora superpón los efectos: ¿cuánto vale {t.describe()} (en {target_unit(t)}) con "
+                    "todas las fuentes encendidas? Suma algebraica de los casos, respetando el sentido de cada uno.")
         return ""
 
     def _step_prompt(self, step: Step) -> str:
@@ -480,6 +575,9 @@ class Session:
         if self.method == "nodos":
             return (f"Convención: el nodo 0 es la referencia (0 V) y las incógnitas son "
                     f"{', '.join(self.vars)}; en LCK, las corrientes que salen del nodo son positivas.")
+        if self.method == "superposicion":
+            return ("Convención: analiza cada fuente sola, con las demás apagadas, y usa la misma referencia "
+                    "en todos los casos; lo que vaya en sentido contrario lleva signo negativo.")
         return ""
 
     def _format_example(self) -> str:
@@ -494,14 +592,19 @@ class Session:
     def _metacog_q2(self) -> str:
         codes = self._main_errors()
         if codes:
-            main = max(set(codes), key=codes.count)
+            main = max(dict.fromkeys(codes), key=codes.count)  # empate: el primero que cometió
             q = self.bank.get(main).metacognitiva
             if q:
                 return q
         return {"mallas": "¿Por qué en una resistencia compartida aparece una diferencia de corrientes?",
                 "nodos": "¿Por qué cada corriente de una resistencia depende de la diferencia de voltajes?",
                 "serie_paralelo": "¿Qué distingue a elementos en serie de elementos en paralelo?",
-                "ohm": "¿Cómo compruebas que un despeje de la Ley de Ohm tiene sentido físico?"}[self.method]
+                "ohm": "¿Cómo compruebas que un despeje de la Ley de Ohm tiene sentido físico?",
+                "divisor": ("¿Por qué en un divisor de voltaje la resistencia mayor se queda con más voltaje?"
+                            if self.div_tipo == "V" else
+                            "¿Por qué en un divisor de corriente la rama de menor resistencia lleva más corriente?"),
+                "superposicion": "¿Por qué una fuente de voltaje apagada se reemplaza por un corto y una de "
+                                 "corriente por un circuito abierto?"}[self.method]
 
     # -------------------------------------------------------- escalera genérica
     def _ladder(self, step: Step, level: int) -> str:
@@ -634,11 +737,77 @@ class Session:
                     3: step.data["hint"] + " ¿Qué implica eso para este circuito?",
                     4: step.data["hint"] + " Con esto, ¿cómo responderías?",
                     5: step.data["hint"] + " Explícalo con tus palabras."}[level]
+        if k == "sup_casos":
+            names = ", ".join(self.circuit.get(n).label for n in self.sup_fuentes)
+            return {1: "¿Cuántas fuentes independientes (de voltaje o de corriente) ves en el circuito?",
+                    2: "La superposición analiza una fuente a la vez: hay un caso por cada fuente independiente.",
+                    3: f"Las fuentes del circuito son {names}. ¿Cuántas son?",
+                    4: f"Cada una de estas fuentes es un caso: {names}. ¿Cuántos casos son?",
+                    5: f"Son {len(self.sup_fuentes)} fuentes ({names}), así que son {len(self.sup_fuentes)} "
+                       "casos. ¿Cuál analizarás primero?"}[level]
+        if k == "sup_apagar":
+            src = self.circuit.get(self.sup_fuentes[step.data["k"]])
+            otras = [n for n in self.sup_fuentes if n != src.name]
+            return {1: "Si una fuente está apagada, ¿qué valor tiene su voltaje (si es de voltaje) o su "
+                       "corriente (si es de corriente)?",
+                    2: step.data["hint"],
+                    3: "Piensa qué elemento tiene siempre 0 V entre sus terminales y cuál no deja pasar "
+                       "corriente. ¿Con cuál se reemplaza cada tipo de fuente?",
+                    4: f"Las demás fuentes son {', '.join(otras)}: ¿qué haces con cada una, según sea de "
+                       "voltaje o de corriente?",
+                    5: step.data["hint"] + f" ¿Cómo queda entonces el circuito para {src.name}?"}[level]
+        if k == "sup_parcial":
+            src = self.circuit.get(self.sup_fuentes[step.data["k"]])
+            t = self.targets[item]
+            if level == 5:
+                apagado = apagar_fuentes(self.circuit, src.name)
+                try:
+                    req = fmt(equivalent_resistance(apagado, src.n1, src.n2, exclude=src.name))
+                    ve = (f"Con las demás fuentes apagadas, {src.name} ve una resistencia equivalente de "
+                          f"{req} Ω. ")
+                except CircuitError:
+                    ve = ""
+                return ve + ("Con ella obtén la corriente total y, si hace falta, repártela con un divisor "
+                             "de corriente o aplica la Ley de Ohm. ¿Qué obtienes?" if src.kind == "V" else
+                             "Con ella obtén el voltaje de la fuente y, si hace falta, repártelo con un "
+                             "divisor de corriente o aplica la Ley de Ohm. ¿Qué obtienes?")
+            return {1: f"¿Qué queda del circuito cuando sólo {src.name} está encendida? ¿Qué pasa con las demás fuentes?",
+                    2: "Con las demás fuentes apagadas queda un circuito simple: dibújalo (voltaje apagado = "
+                       "cable, corriente apagada = abierto) y reduce las resistencias.",
+                    3: ("Reduce las resistencias que ve la fuente de voltaje, obtén la corriente total con la "
+                        "Ley de Ohm y repártela con un divisor de corriente."
+                        if src.kind == "V" else
+                        "La fuente de corriente reparte su corriente entre las ramas en paralelo: usa un "
+                        "divisor de corriente."),
+                    4: f"Con el circuito simple de {src.name}, ¿cuál es la corriente o el voltaje de "
+                       f"{t.element}? Usa la Ley de Ohm o un divisor."}[level]
+        if k == "sup_suma":
+            t = self.targets[item]
+            if level == 5:
+                e = self.circuit.get(t.element)
+                partes = ", ".join(f"{n}: {fmt(self.sup_parcial[j][item])}"
+                                   for j, n in enumerate(self.sup_fuentes))
+                return (f"Tomando como positivo el sentido de {e.n1} a {e.n2} en {e.name}, los casos valen "
+                        f"{partes}. Suma esos valores con su signo. ¿Cuánto da?")
+            return {1: "Cada caso aportó una parte. ¿Cómo se combinan los efectos de las fuentes: se suman, "
+                       "se multiplican o se promedian?",
+                    2: "Superposición: el efecto total es la suma algebraica de los efectos de cada fuente. "
+                       "Lo que va en el mismo sentido se suma y lo que va en sentido contrario se resta.",
+                    3: f"Revisa en {t.element} el sentido de cada caso: ¿van en el mismo sentido o en sentidos "
+                       "contrarios?",
+                    4: "Toma un sentido como positivo; los casos que vayan en sentido contrario llevan signo "
+                       "negativo. Suma todos los casos, sin dejar fuera ninguna fuente."}[level]
         if k in ("verify",):
             if step.data.get("balance"):
                 return self.bank.text("BALANCE_WRONG", level) if level <= 4 else (
                     "PC es la suma de I²·R de cada resistencia de tu tabla; PE es la suma de V·I de cada "
                     "fuente. Calcula las dos por separado. ¿Qué obtienes?")
+            if level == 5 and self.method == "divisor":
+                return ("Suma los voltajes de las resistencias (o las corrientes de las ramas): ¿cuánto "
+                        "debe dar la suma?")
+            if level == 5 and self.method == "superposicion":
+                return ("Compara con el circuito completo: simúlalo, plantea mallas o nodos con todas las "
+                        "fuentes encendidas y revisa que el resultado coincida. ¿Cuál harías?")
             return self.bank.text("VERIFY_VAGUE", level) if level <= 4 else \
                 "Sustituye tus valores en las ecuaciones originales y revisa que se cumplan. ¿Se cumplen?"
         if k == "sim":
@@ -655,6 +824,8 @@ class Session:
                     4: "Identifica el primer par que puedas combinar y calcula su equivalente. ¿Cuál es?",
                     5: "Resistencias del circuito: " + ", ".join(e.label for e in self.circuit.by_kind("R"))
                        + ". Reduce de adentro hacia afuera hasta quedarte con una sola. ¿Qué obtienes?"}[level]
+        if self.method == "divisor" and t.quantity == ("V" if self.div_tipo == "V" else "I"):
+            return self._div_ladder(t, level)
         q = {"I": "la corriente", "V": "el voltaje", "P": "la potencia"}[t.quantity]
         return {1: f"¿Qué relación conecta {q} de {t.element} con lo que ya conoces?",
                 2: "Recuerda: V = R·I para resistencias y P = V·I para cualquier elemento.",
@@ -662,6 +833,71 @@ class Session:
                 4: f"Para {t.element}: ¿cuál es su corriente? Con ella, aplica V = R·I o P = V·I.",
                 5: f"Para {t.element}: identifica su corriente, luego su voltaje (V = R·I) y, si se pide, "
                    "P = V·I. Haz tú la última operación."}[level]
+
+    def _div_ramas(self, t: Target) -> tuple:
+        """(elemento pedido, otras resistencias del divisor)."""
+        e = self.circuit.get(t.element)
+        otras = [r for r in self.circuit.by_kind("R") if r.n1 != r.n2 and r.name != e.name]
+        return e, otras
+
+    def _div_ladder(self, t: Target, level: int) -> str:
+        e, otras = self._div_ramas(t)
+        fuente = self.circuit.by_kind("V" if self.div_tipo == "V" else "I")[0]
+        if self.div_tipo == "V":
+            suma = " + ".join(fmt(r.value) for r in [e] + otras)
+            return {1: "En una serie, ¿el voltaje se reparte por igual o según el valor de cada resistencia?",
+                    2: "Divisor de voltaje: V_Rn = VT · Rn / R_T, donde R_T es la resistencia total de la "
+                       "serie (la suma de todas).",
+                    3: f"Primero obtén R_T sumando las resistencias de la serie; después multiplica VT por la "
+                       f"fracción que le toca a {e.name} (su resistencia entre R_T).",
+                    4: f"Para {e.name}: V = VT · ({fmt(e.value)} Ω) / R_T, con R_T = la suma de "
+                       f"{', '.join(r.name for r in [e] + otras)}. ¿Cuánto da?",
+                    5: f"VT = {fmt(fuente.value)} V, Rn = {fmt(e.value)} Ω y R_T = {suma}. Haz tú la "
+                       "operación VT · Rn / R_T."}[level]
+        if len(otras) == 1:
+            o = otras[0]
+            return {1: "En un divisor de corriente, ¿por qué rama pasa más corriente: por la de mayor o por la "
+                       "de menor resistencia?",
+                    2: "Divisor de corriente (dos ramas): I_R1 = It · R2/(R1 + R2) e I_R2 = It · R1/(R1 + R2). "
+                       "La corriente de una rama lleva en el numerador la resistencia de la OTRA rama.",
+                    3: f"Identifica la rama de {e.name} y la otra rama; multiplica It por la resistencia de la "
+                       "otra rama entre la suma de las dos.",
+                    4: f"Para {e.name}: I = It · ({o.name})/({e.name} + {o.name}). Sustituye los valores.",
+                    5: f"It = {fmt(fuente.value)} A, la otra resistencia es {fmt(o.value)} Ω y "
+                       f"R1 + R2 = {fmt(e.value)} + {fmt(o.value)}. Haz tú la operación."}[level]
+        paralelo = " + ".join(f"1/{fmt(r.value)}" for r in [e] + otras)
+        return {1: "En un divisor de corriente con varias ramas, ¿cómo cambia la corriente de cada rama "
+                   "conforme aumenta su resistencia?",
+                2: "Divisor de corriente (n ramas): I_x = It · R_eq / R_x, donde R_eq es la resistencia "
+                   "equivalente de todas las ramas en paralelo.",
+                3: f"Primero calcula R_eq de las ramas en paralelo; luego multiplica It por R_eq / R_x con "
+                   f"R_x = la resistencia de {e.name}.",
+                4: f"Para {e.name}: I = It · R_eq / ({fmt(e.value)} Ω), con 1/R_eq = suma de los inversos "
+                   "de todas las ramas. ¿Cuánto da?",
+                5: f"It = {fmt(fuente.value)} A, R_x = {fmt(e.value)} Ω y 1/R_eq = {paralelo}. Haz tú la "
+                   "operación."}[level]
+
+    def _div_mutaciones(self, t: Target, truth: float) -> dict[str, float]:
+        """Valores que salen de los errores típicos del divisor (cada uno sólo donde tiene sentido)."""
+        e, otras = self._div_ramas(t)
+        R = float(e.value)
+        Ro = [float(r.value) for r in otras]
+        fuente = float(self.circuit.by_kind("V" if self.div_tipo == "V" else "I")[0].value)
+        muts: dict[str, float] = {}
+        if self.div_tipo == "V" and t.quantity == "V":
+            # no usa la R total de la serie: divide entre las otras o entre un par
+            candidatos = [fuente * R / sum(Ro)] + [fuente * R / (R + r) for r in Ro if len(Ro) > 1]
+            for n, v in enumerate(candidatos):
+                if not close(v, truth):
+                    muts["DIV_V_RT_INCORRECTA" + (f"#{n + 1}" if n else "")] = v
+        elif self.div_tipo == "I" and t.quantity == "I":
+            if len(Ro) == 1:
+                # con dos ramas usa su propia R en lugar de la de la otra
+                muts["DIV_I_R_PROPIA"] = fuente * R / (R + Ro[0])
+            else:
+                # con n ramas usa R_T (la suma) en lugar de R_eq
+                muts["DIV_I_SIN_REQ"] = fuente * (R + sum(Ro)) / R
+        return {k: v for k, v in muts.items() if not close(v, truth)}
 
     # ============================================================ API pública
     def start(self) -> str:
@@ -898,16 +1134,22 @@ class Session:
         concept = {"mallas": "LVK por malla y corriente neta en ramas compartidas",
                    "nodos": "LCK por nodo con corrientes (Vnodo − Vvecino)/R",
                    "serie_paralelo": "en serie se comparte la corriente; en paralelo, el voltaje",
-                   "ohm": "V = R·I y P = V·I"}[self.method]
+                   "ohm": "V = R·I y P = V·I",
+                   "divisor": ("divisor de voltaje: V_Rn = VT·Rn/R_T" if self.div_tipo == "V" else
+                               "divisor de corriente: la corriente de cada rama es It·R_eq/R_rama"),
+                   "superposicion": "cada fuente actúa sola (voltaje apagada = corto, corriente apagada = "
+                                    "abierto) y los efectos se suman algebraicamente"}[self.method]
         strategy = {"mallas": "antes de formular LVK, identifica las ramas compartidas y establece "
                               "correctamente la corriente neta de cada una",
                     "nodos": "escribe cada corriente como diferencia de voltajes entre resistencia y revisa "
                              "unidades en cada término",
                     "serie_paralelo": "antes de combinar, identifica qué elementos comparten corriente "
                                       "y cuáles comparten voltaje",
-                    "ohm": "revisa unidades y sentido físico de cada despeje"}[self.method]
+                    "ohm": "revisa unidades y sentido físico de cada despeje",
+                    "divisor": "comprueba que las partes sumen el total (los voltajes dan VT o las corrientes dan It)",
+                    "superposicion": "apaga bien las demás fuentes en cada caso y suma con el signo de cada sentido"}[self.method]
         if codes:
-            main = max(set(codes), key=codes.count)
+            main = max(dict.fromkeys(codes), key=codes.count)  # empate: el primero que cometió
             d = self.bank.get(main).descripcion
             err = d[:1].lower() + d[1:]
         else:
@@ -1371,6 +1613,26 @@ class Session:
 
     def _check_verify(self, step, text):
         low = text.lower()
+        if self.method == "superposicion":
+            potencia = re.search(r"potencia|balance|\bpe\b|\bpc\b", low)
+            # con los valores del circuito completo el balance sí se cumple: lo que no se puede es sumar
+            # la potencia caso por caso
+            if potencia and re.search(r"complet|todas\s+las\s+fuentes|totales|encendidas", low) and not re.search(
+                    r"cada\s+caso|por\s+caso|de\s+los\s+casos|parcial", low):
+                return Outcome(True, item="v", partial_msg=(
+                    "Esa es una buena comprobación: con los valores del circuito completo, PE = PC."))
+            if potencia:
+                return Outcome(False, "ELABORATE", partial_msg=(
+                    "La potencia no se superpone: depende del cuadrado de la corriente, así que no se puede "
+                    "sumar caso por caso. Comprueba de otra forma: simula el circuito completo, plantea mallas "
+                    "o nodos, o compara con el valor del circuito con todas las fuentes encendidas. ¿Cuál harías?"))
+            if re.search(r"mallas?|nodos?|completo|todas\s+las\s+fuentes", low) and not re.search(
+                    r"simul|multisim|phet|medir|mult[ií]metro", low):
+                return Outcome(True, item="v", partial_msg="Esa es una buena comprobación.")
+        if self.method == "divisor" and re.search(r"\bsum\w*", low) and re.search(
+                r"voltaj|corriente|tensi[oó]n|\bv_?r\w*|\bi_?t\b|\bv_?t\b|resultados|partes", low):
+            return Outcome(True, item="v", partial_msg=(
+                "Esa es la comprobación del divisor: las partes deben sumar el total."))
         if step.data.get("balance"):
             out = self._check_balance(step, text)
             if out is not None:
@@ -1542,6 +1804,8 @@ class Session:
         e = c.get(t.element)
         i, v = float(sol.elem_i[e.name]), float(sol.elem_v[e.name])
         srcV = c.by_kind("V")
+        if self.method == "divisor" and e.kind == "R":
+            muts.update(self._div_mutaciones(t, float(target_value(c, sol, t))))
         if e.kind == "R":
             R = float(e.value)
             if t.quantity == "I":
@@ -1604,6 +1868,190 @@ class Session:
         return Outcome(False, code, {"var": t.describe(), "elemento": t.element or "",
                                      "ecuacion_falla": t.describe()})
 
+    # --- superposición
+    def _check_sup_casos(self, step, text):
+        n = self._first_int(text)
+        if n is None:
+            return None
+        if n == len(self.sup_fuentes):
+            return Outcome(True, item="n", partial_msg="Correcto: un caso por cada fuente independiente.")
+        return Outcome(False, "TARGET_WRONG", {"var": "el número de casos"})
+
+    def _check_sup_apagar(self, step, text):
+        src = self.circuit.get(self.sup_fuentes[step.data["k"]])
+        otras = [self.circuit.get(n) for n in self.sup_fuentes if n != src.name]
+        necesarios = {e.kind for e in otras}
+        buenos: set[str] = set()
+        malos: list[tuple[str, str]] = []
+        sueltas = negadas = False
+        for cl in re.split(r"[.;,\n]|\s+y\s+|\s+e\s+|\s+pero\s+|\s+mientras\s+|\s+sino\s+", text):
+            acciones = {a for a, rx in (("corto", _CORTO_RE), ("abierto", _ABIERTO_RE)) if rx.search(cl)}
+            if not acciones:
+                continue
+            inicio = min(m.start() for m in (_CORTO_RE.search(cl), _ABIERTO_RE.search(cl)) if m)
+            if _NEGACION_RE.search(cl[:inicio]):
+                negadas = True
+                continue
+            tipos = {e.kind for e in otras if re.search(rf"\b{re.escape(e.name)}\b", cl, re.I)}
+            tipos |= {t for t, rx in (("V", _VOLTAJE_RE), ("I", _CORRIENTE_RE)) if rx.search(cl)}
+            if not tipos and len(necesarios) == 1:
+                tipos = set(necesarios)
+            if len(acciones) != 1 or len(tipos) != 1:
+                sueltas = True
+                continue
+            tipo, accion = next(iter(tipos)), next(iter(acciones))
+            if tipo not in necesarios:
+                continue
+            if (tipo, accion) in (("V", "corto"), ("I", "abierto")):
+                buenos.add(tipo)
+            else:
+                malos.append((tipo, accion))
+        if malos:
+            tipo = malos[0][0]
+            nombres = ", ".join(e.name for e in otras if e.kind == tipo)
+            return Outcome(False, "SUP_V_ABIERTA" if tipo == "V" else "SUP_I_EN_CORTO",
+                           {"fuente": nombres, "activa": src.name})
+        if necesarios <= buenos:
+            return Outcome(True, item="a", partial_msg=(
+                "Correcto: las fuentes de voltaje apagadas quedan en corto y las de corriente, abiertas."))
+        if buenos or sueltas:
+            falta = [("las fuentes de voltaje" if t == "V" else "las fuentes de corriente")
+                     for t in sorted(necesarios - buenos, reverse=True)]
+            return Outcome(False, "ELABORATE", partial_msg=(
+                f"Dime también qué haces con {' y con '.join(falta) or 'cada una de las demás fuentes'} "
+                "para dejar sólo una encendida. ¿Con qué las reemplazas?"))
+        if negadas or _QUITAR_RE.search(text):
+            return Outcome(False, "ELABORATE", partial_msg=(
+                "Sí, las demás fuentes se apagan. Dime con qué reemplazas cada una: ¿con un cortocircuito "
+                "(conexión directa) o con un circuito abierto?"))
+        return Outcome(False, "TARGET_WRONG", {"var": "cómo se apagan las demás fuentes"})
+
+    def _asignar_valores(self, step, text) -> dict[int, float]:
+        """Reparte los números del texto entre las magnitudes pendientes del paso."""
+        claims = parse_numbers(text)
+        pend = step.pending
+        if not claims or not pend:
+            return {}
+        if len(pend) == 1:
+            return {pend[0]: claims[-1].value}
+        unidades = [target_unit(self.targets[i]) for i in pend]
+        if len(set(unidades)) == len(unidades):
+            out = {}
+            for i, u in zip(pend, unidades):
+                cs = [c for c in claims if c.unit == u]
+                if cs:
+                    out[i] = cs[-1].value
+            if out:
+                return out
+        if len(claims) == len(pend):
+            return {i: c.value for i, c in zip(pend, claims)}
+        return {pend[0]: claims[-1].value}
+
+    def _parcial_mutaciones(self, k: int, i: int) -> dict[str, float]:
+        """Valor que saldría si el alumno apagara mal las demás fuentes: las de voltaje como
+        circuito abierto o las de corriente como cortocircuito."""
+        c, t = self.circuit, self.targets[i]
+        activa = self.sup_fuentes[k]
+        otras = [e for e in c.elements if e.kind in ("V", "I") and e.name != activa]
+        muts: dict[str, float] = {}
+        for code, tipo in (("SUP_V_ABIERTA", "V"), ("SUP_I_EN_CORTO", "I")):
+            if not any(e.kind == tipo for e in otras):
+                continue
+            elementos = []
+            for e in c.elements:
+                if e in otras:
+                    if e.kind == "V":
+                        if tipo == "V":
+                            continue                      # abierta: se retira
+                        elementos.append(Element(e.name, "V", e.n1, e.n2, sp.Integer(0)))
+                    elif tipo == "I":
+                        elementos.append(Element(e.name, "V", e.n1, e.n2, sp.Integer(0)))   # en corto
+                    else:
+                        elementos.append(Element(e.name, "I", e.n1, e.n2, sp.Integer(0)))
+                else:
+                    elementos.append(e)
+            try:
+                mal = Circuit(elementos)
+                muts[code] = float(target_value(mal, solve(mal), t))
+            except (CircuitError, KeyError, ValueError):
+                continue
+        return muts
+
+    def _check_sup_parcial(self, step, text):
+        k = step.data["k"]
+        src = self.circuit.get(self.sup_fuentes[k])
+        vals = self._asignar_valores(step, text)
+        if not vals:
+            return None
+        buenos: list[int] = []
+        malos: list[tuple[int, Diagnosis]] = []
+        for i, v in vals.items():
+            p = self.sup_parcial[k][i]
+            d = diagnose_value(v, p, self._parcial_mutaciones(k, i))
+            if d.ok or d.code == "VALUE_SIGN":
+                buenos.append(i)
+                # sentido que dio el alumno respecto a la referencia del elemento (de n1 a n2)
+                self.sup_sentidos[(k, i)] = ("nulo" if abs(v) < 1e-9 else "a favor" if v > 0 else "en contra")
+            else:
+                malos.append((i, d))
+        for i in buenos:
+            if i not in step.done:
+                step.done.append(i)
+        if malos:
+            i, d = malos[0]
+            t = self.targets[i]
+            code = "TARGET_WRONG" if d.code == "VALUE_WRONG" else d.code
+            otras = [n for n in self.sup_fuentes if n != src.name]
+            tipo = "V" if code == "SUP_V_ABIERTA" else "I"
+            nombres = ", ".join(n for n in otras if self.circuit.get(n).kind == tipo) or ", ".join(otras)
+            msg = ("Lo que diste de " + ", ".join(self.targets[j].describe() for j in buenos) + " está bien."
+                   if buenos else "")
+            return Outcome(False, code, {"var": t.describe(), "elemento": t.element or "",
+                                         "ecuacion_falla": t.describe(), "fuente": nombres,
+                                         "activa": src.name}, partial_msg=msg)
+        return Outcome(True, item=buenos[-1], partial_msg="Correcto.")
+
+    def _codigo_suma(self, v: float, partes: list[float], total: float, d: Diagnosis) -> str:
+        a = abs(v)
+        n = len(partes)
+        # omite alguna fuente: coincide con un subconjunto propio de los casos
+        for r in range(1, n):
+            for sub in itertools.combinations(partes, r):
+                if close(a, abs(sum(sub))):
+                    return "SUP_FALTA_FUENTE"
+        # signo: suma o resta las magnitudes sin respetar el sentido de cada caso
+        mags = [abs(x) for x in partes]
+        for signos in itertools.product((1, -1), repeat=n):
+            if close(a, abs(sum(s * m for s, m in zip(signos, mags)))):
+                return "SUP_SIGNO"
+        return "TARGET_WRONG" if d.code == "VALUE_WRONG" else d.code
+
+    def _check_sup_suma(self, step, text):
+        vals = self._asignar_valores(step, text)
+        if not vals:
+            return None
+        buenos: list[int] = []
+        malos: list[tuple[int, str]] = []
+        for i, v in vals.items():
+            total = self.target_truth[i]
+            d = diagnose_value(v, total)
+            if d.ok or d.code == "VALUE_SIGN":
+                buenos.append(i)
+            else:
+                partes = [self.sup_parcial[j][i] for j in range(len(self.sup_fuentes))]
+                malos.append((i, self._codigo_suma(v, partes, total, d)))
+        for i in buenos:
+            if i not in step.done:
+                step.done.append(i)
+        if malos:
+            i, code = malos[0]
+            t = self.targets[i]
+            msg = ("Lo que diste de " + ", ".join(self.targets[j].describe() for j in buenos) + " está bien."
+                   if buenos else "")
+            return Outcome(False, code, {"var": t.describe(), "elemento": t.element or "",
+                                         "ecuacion_falla": t.describe()}, partial_msg=msg)
+        return Outcome(True, item=buenos[-1], partial_msg="Correcto: es la suma algebraica de los casos.")
+
     def _check_submit(self, step, text):
         """Modo Verificar: revisa todo lo que manda el alumno de una vez, sin resolver."""
         report, first_bad = [], None
@@ -1639,10 +2087,23 @@ class Session:
                 else:
                     report.append(f"✘ {c.var} = {c.value:g}")
         if eq_step is None and val_step is None:
-            # Ohm y serie/paralelo: se reconocen los resultados; lo que falte se pregunta por pasos
+            # Ohm, serie/paralelo, divisor y superposición: se reconocen los resultados; lo que
+            # falte se pregunta por pasos
             nums = [abs(c.value) for c in parse_numbers(text) if c.unit != "Ω"]
             if not nums:
                 return None
+            for k, nombre in enumerate(self.sup_fuentes):
+                st = next((s_ for s_ in self.steps if s_.id == f"sup_parcial_{k + 1}"), None)
+                for i in list(st.pending) if st else []:
+                    p = abs(self.sup_parcial[k][i])
+                    if p > 1e-9 and any(close(v, p, TABLE_TOL) for v in nums):
+                        st.done.append(i)
+                        report.append(f"✔ {self.targets[i].describe()} con sólo {nombre}")
+            sm = next((s_ for s_ in self.steps if s_.kind == "sup_suma"), None)
+            for i in list(sm.pending) if sm else []:
+                if any(close(v, abs(self.target_truth[i]), TABLE_TOL) for v in nums):
+                    sm.done.append(i)
+                    report.append(f"✔ {self.targets[i].describe()} con todas las fuentes")
             red = next((s_ for s_ in self.steps if s_.kind == "reduce"), None)
             if red and "req" in red.pending and any(close(v, float(self.reducer.req), TABLE_TOL) for v in nums):
                 red.done.append("req")
@@ -1697,6 +2158,13 @@ class Session:
             out += [self.target_truth[i] for i in ts.pending]
         except KeyError:
             pass
+        for st in self.steps:
+            if st.kind == "sup_parcial":
+                out += [self.sup_parcial[st.data["k"]][i] for i in st.pending]
+            elif st.kind == "sup_suma":
+                out += [self.target_truth[i] for i in st.pending]
+            elif st.kind == "reduce" and self.reducer is not None and st.pending:
+                out.append(float(self.reducer.req))
         known = {float(e.value) for e in self.circuit.elements}
         return [x for x in out if abs(x) > 1e-9 and not any(close(abs(x), k) for k in known)]
 

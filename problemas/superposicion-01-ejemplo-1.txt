@@ -1,0 +1,14 @@
+TITULO: Superposición · Ejemplo 1 (voltaje y corriente)
+TEMA: superposicion
+METODO: superposicion
+NIVEL: básico
+FUENTE: Material de clase, Tema 6 (Superposición), Ejemplo 1, pp. 9–10
+IMAGEN: superposicion-01-ejemplo-1.svg
+ENUNCIADO: Una fuente de 36 V alimenta R1 = 12 Ω; R2 = 6 Ω queda en paralelo con una fuente de corriente de 9 A. Encuentra la corriente en R2 con el teorema de superposición.
+PIDE: I R2
+RESPUESTA: I R2=8
+
+V1 x 0 36
+R1 x a 12
+R2 a 0 6
+I1 0 a 9

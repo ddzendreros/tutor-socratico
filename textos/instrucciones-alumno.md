@@ -38,7 +38,7 @@ En la parte de arriba de la ventana se ve tu código y el estado del tutor. Mien
 
 ## 4. Uso del tutor
 
-1. **Elige un modo y un problema.** En la pantalla principal están los modos *Aprender*, *Practicar*, *Verificar* y *Simulador*, con una línea que explica cada uno, y debajo los temas: Ley de Ohm, Serie y paralelo, Método de mallas y Método de nodos. Cada problema marca si está *En curso* o *Terminado* en el modo elegido.
+1. **Elige un modo y un problema.** En la pantalla principal están los modos *Aprender*, *Practicar*, *Verificar* y *Simulador*, con una línea que explica cada uno, y debajo los temas: Ley de Ohm, Serie y paralelo, Método de mallas, Método de nodos, Divisor de voltaje y corriente y Superposición. Cada problema marca si está *En curso* o *Terminado* en el modo elegido.
 2. **Cuestionarios.** Si tu profesor activó alguno, aparece antes o después de ciertos problemas, una pregunta a la vez, con el botón **Continuar**.
 3. **Conversa con el tutor.**
    - Escribe en el cuadro de abajo y presiona **Enter** o el botón **Enviar** (con **Mayús+Enter** pasas a otra línea).

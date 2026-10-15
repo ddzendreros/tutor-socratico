@@ -184,6 +184,22 @@ def correct_answer(s):
         mv = s.reducer.moves()[0]
         names = [display(n) for n in mv.members]
         return f"{', '.join(names[:-1])} y {names[-1]} en {mv.kind} = {g(mv.value)}"
+    if k == "verify" and s.method == "superposicion":
+        return "planteo mallas del circuito completo, con todas las fuentes encendidas, y comparo"
+    if k == "verify" and s.method == "divisor":
+        return "sumo los voltajes y las corrientes de las partes y deben dar el total de la fuente"
+    if k == "sup_casos":
+        return str(len(s.sup_fuentes))
+    if k == "sup_apagar":
+        otras = {s.circuit.get(n).kind for j, n in enumerate(s.sup_fuentes) if j != st.data["k"]}
+        partes = (["la fuente de voltaje se reemplaza por un cortocircuito"] if "V" in otras else []) + \
+                 (["la fuente de corriente por un circuito abierto"] if "I" in otras else [])
+        return " y ".join(partes)
+    if k in ("sup_parcial", "sup_suma"):
+        valores = ([s.sup_parcial[st.data["k"]][i] for i in st.pending] if k == "sup_parcial"
+                   else [s.target_truth[i] for i in st.pending])
+        return ", ".join(f"{g(v)} {'A' if s.targets[i].quantity == 'I' else 'V'}"
+                         for i, v in zip(st.pending, valores))
     if k == "verify":
         pc = s._power_totals()
         return f"PE = {g(pc)} W y PC = {g(pc)} W" if st.data.get("balance") else "con el balance de potencias"

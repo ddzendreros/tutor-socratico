@@ -1,0 +1,16 @@
+TITULO: Superposición · Ejemplo 2 (dos fuentes de voltaje)
+TEMA: superposicion
+METODO: superposicion
+NIVEL: intermedio
+FUENTE: Material de clase, Tema 6 (Superposición), Ejemplo 2, pp. 11–12 (la diapositiva trunca 13/6 a 2.16)
+IMAGEN: superposicion-02-ejemplo-2.svg
+ENUNCIADO: V1 = 54 V alimenta R1 = 24 Ω por la izquierda y V2 = 48 V alimenta R3 = 4 Ω por la derecha, con la terminal + abajo; R2 = 12 Ω está entre el nodo central y la referencia. Encuentra la corriente en R2 con el teorema de superposición, con sentido positivo hacia arriba.
+PIDE: I R2
+RESPUESTA: I R2=2.17
+NOTA: (para el profesor) Las dos corrientes de R2 tienen sentidos opuestos: V1 la empuja hacia abajo (0.5 A) y V2 hacia arriba (8/3 A). La suma algebraica da 13/6 A; la diapositiva escribe 2.16.
+
+V1 x 0 54
+R1 x a 24
+R2 0 a 12
+R3 a y 4
+V2 0 y 48

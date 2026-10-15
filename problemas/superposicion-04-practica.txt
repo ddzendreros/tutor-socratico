@@ -1,0 +1,18 @@
+TITULO: Superposición · Práctica (V e I en R2)
+TEMA: superposicion
+METODO: superposicion
+NIVEL: avanzado
+FUENTE: Material de clase, Tema 6 (Superposición), ejercicio de práctica, p. 36; la respuesta sale de la solución por Thévenin del mismo circuito, pp. 37–38
+IMAGEN: superposicion-04-practica.svg
+ENUNCIADO: Una fuente de corriente de 2 A sube por la rama izquierda hacia R1 = 2 Ω. R2 = 1 Ω y R3 = 6 Ω forman la columna central, R4 = 8 Ω va de su unión al nodo de la derecha, R5 = 10 Ω baja de ese nodo al riel inferior y una fuente de 5 V (con el + arriba) une la parte superior con ese nodo. Encuentra el voltaje y la corriente en R2 con el teorema de superposición.
+PIDE: V R2; I R2
+RESPUESTA: V R2=1.842 I R2=1.842
+NOTA: (para el profesor) La diapositiva no resuelve este circuito por superposición: el resultado de referencia es el del equivalente de Thévenin (Vth = 35/3 V, Rth = 16/3 Ω), que da 35/19 V en R2.
+
+IX 0 tl 2
+R1 tl a 2
+R2 a b 1
+VX a c 5
+R3 b 0 6
+R4 b c 8
+R5 c 0 10

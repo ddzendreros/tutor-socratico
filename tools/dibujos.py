@@ -31,6 +31,38 @@ UNITS = {"R": "Ω", "V": "V", "I": "A"}
 # nodos: polilíneas de cable por nodo; elementos: (nombre, punto en su 1er nodo, punto en su 2o nodo, lado
 # de la etiqueta); mallas y nodos: etiquetas; tierra: punto del símbolo; terminales: puntos abiertos
 DIBUJOS: dict[str, dict] = {
+    "divisor-01-voltaje": dict(
+        nodos={"0": [[(0, 0)]], "a": [[(0, 2)]], "b": [[(3, 2)]], "c": [[(3, 0)]]},
+        elementos=[("VT", (0, 2), (0, 0), "l"), ("R1", (0, 2), (3, 2), "t"), ("R2", (3, 2), (3, 0), "r"),
+                   ("R3", (3, 0), (0, 0), "b")],
+    ),
+    "divisor-02-corriente": dict(
+        nodos={"0": [[(0, 0), (4, 0)]], "a": [[(0, 2), (4, 2)]]},
+        elementos=[("IT", (0, 0), (0, 2), "l"), ("R1", (2, 2), (2, 0), "r"), ("R2", (4, 2), (4, 0), "r")],
+    ),
+    "superposicion-01-ejemplo-1": dict(
+        nodos={"0": [[(0, 0), (4, 0)]], "x": [[(0, 2)]], "a": [[(2, 2), (4, 2)]]},
+        elementos=[("V1", (0, 2), (0, 0), "l"), ("R1", (0, 2), (2, 2), "t"), ("R2", (2, 2), (2, 0), "r"),
+                   ("I1", (4, 0), (4, 2), "r")],
+    ),
+    "superposicion-02-ejemplo-2": dict(
+        nodos={"0": [[(0, 0), (6, 0)]], "x": [[(0, 2)]], "a": [[(2, 2), (4, 2)]], "y": [[(6, 2)]]},
+        elementos=[("V1", (0, 2), (0, 0), "l"), ("R1", (0, 2), (2, 2), "t"), ("R2", (3, 0), (3, 2), "r"),
+                   ("R3", (4, 2), (6, 2), "t"), ("V2", (6, 0), (6, 2), "r")],
+    ),
+    "superposicion-03-ejemplo-3": dict(
+        nodos={"0": [[(0, 2), (0, 0), (6, 0), (6, 2)]], "tl": [[(0, 4), (2, 4)]], "tr": [[(4, 4), (6, 4)]],
+               "m": [[(3, 2)]]},
+        elementos=[("VX", (2, 4), (4, 4), "t"), ("R1", (0, 4), (0, 2), "l"), ("R2", (6, 4), (6, 2), "r"),
+                   ("R3", (0, 2), (3, 2), "t"), ("R4", (3, 2), (6, 2), "t"), ("IX", (3, 0), (3, 2), "r")],
+    ),
+    "superposicion-04-practica": dict(
+        nodos={"0": [[(0, 0), (6, 0)]], "tl": [[(0, 4)]], "a": [[(3, 4), (6, 4)]], "b": [[(3, 2)]],
+               "c": [[(6, 2)]]},
+        elementos=[("IX", (0, 0), (0, 4), "l"), ("R1", (0, 4), (3, 4), "t"), ("R2", (3, 4), (3, 2), "l"),
+                   ("R3", (3, 2), (3, 0), "l"), ("R4", (3, 2), (6, 2), "b"), ("VX", (6, 4), (6, 2), "r"),
+                   ("R5", (6, 2), (6, 0), "r")],
+    ),
     "mallas-01-caso1-malla-real": dict(
         nodos={"0": [[(0, 0), (4, 0)]], "a": [[(0, 2)]], "b": [[(2, 2), (4, 2)]], "m": [[(2, 1)]]},
         elementos=[("VX", (0, 2), (0, 0), "l"), ("R1", (0, 2), (2, 2), "t"), ("R2", (2, 2), (2, 1), "r"),
@@ -170,6 +202,13 @@ def _label(d, text, xy, side, gap, color="black", size=16):
                                                            fontsize=size))
 
 
+def _valor(e) -> str:
+    """Valor con su unidad; una resistencia de miles de ohms se escribe en kΩ (5000 Ω -> 5 kΩ)."""
+    if e.kind == "R" and float(e.value) >= 1000 and float(e.value) % 1000 == 0:
+        return f"{fmt(float(e.value) / 1000)} kΩ"
+    return f"{fmt(e.value)} {UNITS[e.kind]}"
+
+
 def draw(pid: str, spec: dict, circuit, path: Path) -> None:
     with schemdraw.Drawing(show=False) as d:
         d.config(fontsize=16, lw=1.6)
@@ -193,7 +232,7 @@ def draw(pid: str, spec: dict, circuit, path: Path) -> None:
             else:
                 d.add(elm.Resistor().endpoints(_xy(p1), _xy(p2)))
             mid = ((p1[0] + p2[0]) / 2 * S, (p1[1] + p2[1]) / 2 * S)
-            _label(d, f"{name}\n{fmt(e.value)} {UNITS[e.kind]}", mid, side, 0.8 if e.kind in "VI" else 0.45)
+            _label(d, f"{name}\n{_valor(e)}", mid, side, 0.8 if e.kind in "VI" else 0.45)
         for p in junctions(spec):
             d.add(elm.Dot(radius=0.12).at(_xy(p)))
         for text, p in spec.get("mallas", []):
