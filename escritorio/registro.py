@@ -31,14 +31,20 @@ ESQUEMA_VERSION = 1
 LOTE_MAX = 50
 
 
-def scrub_datos(obj: Any) -> Any:
-    """Aplica scrub() a todas las cadenas de una estructura."""
+# identificadores y huellas, no texto de nadie: un UUID o un hash pueden tener la forma de un
+# teléfono o de diez dígitos, y el filtro los dañaría (p. ej. "…-3d31-4029-9540-…")
+_SIN_FILTRO = frozenset({"arranque_turno", "intento", "archivo", "construccion", "banco_hash",
+                         "prompts_hash", "modelo_sha256"})
+
+
+def scrub_datos(obj: Any, clave: str | None = None) -> Any:
+    """Aplica scrub() a todas las cadenas de una estructura, salvo a los identificadores."""
     if isinstance(obj, str):
-        return scrub(obj)
+        return obj if clave in _SIN_FILTRO else scrub(obj)
     if isinstance(obj, list):
-        return [scrub_datos(x) for x in obj]
+        return [scrub_datos(x, clave) for x in obj]
     if isinstance(obj, dict):
-        return {k: scrub_datos(v) for k, v in obj.items()}
+        return {k: scrub_datos(v, k) for k, v in obj.items()}
     return obj
 
 

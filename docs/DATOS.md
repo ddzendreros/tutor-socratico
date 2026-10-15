@@ -21,7 +21,9 @@ registra nada: nunca escribe eventos en claro.
 
 Todo el texto libre pasa por `tutor.privacidad.scrub()`, que cambia correos, teléfonos y números de 10
 dígitos (boletas) por `[correo]`, `[teléfono]` y `[número]`. Los números pegados a un punto, una coma u
-otro dígito, o seguidos de una unidad, se conservan, porque son valores del circuito.
+otro dígito, o seguidos de una unidad, se conservan, porque son valores del circuito. Los identificadores
+y huellas (`arranque_turno`, `intento`, `archivo`, `construccion`, `banco_hash`, `prompts_hash` y
+`modelo_sha256`) no pasan por el filtro: un UUID o un hash pueden tener la forma de un teléfono.
 
 ## Sobre
 

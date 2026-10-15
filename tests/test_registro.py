@@ -15,7 +15,7 @@ from escritorio.alumnos import formatear, generar, normalizar
 from escritorio.api import ApiTutor
 from escritorio.cifrado import caja_estado, generar_llaves, guardar_llave_publica
 from escritorio.conversacion import Conversador
-from escritorio.registro import ESQUEMA_VERSION, leer_eventos
+from escritorio.registro import ESQUEMA_VERSION, leer_eventos, scrub_datos
 from tests.test_servidor import ENTRADAS_MALLAS, MALLAS, OHM
 from tutor.llm import LLM
 from tutor.privacidad import scrub
@@ -105,6 +105,17 @@ def test_scrub_conserva_valores_y_quita_datos_personales():
     assert scrub("mi cel es 55 1234 5678") == "mi cel es [teléfono]"
     assert scrub("o al 555-123-4567") == "o al [teléfono]"
     assert scrub("+52 55 1234 5678") == "[teléfono]"
+
+
+def test_el_filtro_no_dana_identificadores_pero_si_filtra_el_texto():
+    # este UUID tiene la forma 2-4-4 de un teléfono; el hash, diez dígitos seguidos
+    uuid_teléfono, huella = "e2a59517-3d31-4029-9540-2553d798cf87", "1234567890ab"
+    datos = {"arranque_turno": uuid_teléfono, "modelo_sha256": huella, "construccion": huella,
+             "alumno": {"texto": "mi cel es 55 1234 5678"}, "respuesta": "boleta 2024640123"}
+    limpio = scrub_datos(datos)
+    assert (limpio["arranque_turno"], limpio["modelo_sha256"], limpio["construccion"]) == (
+        uuid_teléfono, huella, huella)
+    assert limpio["alumno"]["texto"] == "mi cel es [teléfono]" and limpio["respuesta"] == "boleta [número]"
 
 
 def test_quien_no_acepta_no_deja_registro(tmp_path: Path):
